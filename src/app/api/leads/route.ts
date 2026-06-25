@@ -116,7 +116,8 @@ export async function POST(request: Request) {
     await notifyLeadCreated(lead);
 
     return NextResponse.json({ ok: true }, { status: 201 });
-  } catch {
+  } catch (error) {
+    console.error("[api/leads] lead creation failed", error);
     return NextResponse.json(
       { message: "문의 접수 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요." },
       { status: 500 }
