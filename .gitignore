@@ -1,0 +1,16 @@
+.next
+node_modules
+dev.db
+dev.db-journal
+prisma/*.db
+prisma/*.db-journal
+.env
+.env*.local
+coverage
+*.log
+tsconfig.tsbuildinfo
+tmp-phase6-qa
+public/uploads/portfolio/*
+!public/uploads/portfolio/.gitkeep
+
+.vercel
