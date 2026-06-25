@@ -2,8 +2,17 @@
 const nextConfig = {
   reactStrictMode: true,
   experimental: {
-    outputFileTracingIncludes: {
-      "/*": ["./prisma/preview.db"]
+    outputFileTracingExcludes: {
+      "/*": [
+        "./.git/**/*",
+        "./.next/cache/**/*",
+        "./.pnpm-store/**/*",
+        "./node_modules/.cache/**/*",
+        "./prisma/*.db",
+        "./prisma/*.db-journal",
+        "./public/images/**/*",
+        "./public/uploads/**/*"
+      ]
     }
   }
 };
