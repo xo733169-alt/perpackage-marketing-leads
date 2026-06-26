@@ -5,6 +5,8 @@ const links = [
   { href: "/admin/today", label: "오늘 할 일" },
   { href: "/admin/tasks", label: "업무 관리" },
   { href: "/admin/leads", label: "리드 관리" },
+  { href: "/admin/uploads", label: "인쇄파일" },
+  { href: "/admin/cafe24", label: "Cafe24" },
   { href: "/admin/portfolio", label: "제작 사례" },
   { href: "/admin/analytics", label: "성과 대시보드" },
   { href: "/admin/marketing-costs", label: "마케팅 비용" },

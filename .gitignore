@@ -10,6 +10,7 @@ coverage
 *.log
 tsconfig.tsbuildinfo
 tmp-phase6-qa
+.local-print-file-storage
 public/uploads/portfolio/*
 !public/uploads/portfolio/.gitkeep
 

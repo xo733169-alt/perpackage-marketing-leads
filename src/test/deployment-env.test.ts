@@ -8,7 +8,8 @@ describe("deployment env helpers", () => {
       DIRECT_URL: "postgresql://example.invalid/db",
       ADMIN_PASSWORD: "admin-password",
       NEXT_PUBLIC_SITE_URL: "https://example.com",
-      SITE_ACCESS_ENABLED: "false"
+      SITE_ACCESS_ENABLED: "false",
+      PRINT_FILE_STORAGE_PROVIDER: "local"
     });
 
     expect(result.ok).toBe(true);
@@ -16,6 +17,7 @@ describe("deployment env helpers", () => {
     expect(result.databaseMode).toBe("other");
     expect(result.plugoApi).toBe("missing");
     expect(result.portfolioStorage).toBe("local");
+    expect(result.printFileStorage).toBe("local");
   });
 
   it("requires site access password and secret when private mode is enabled", () => {
@@ -23,7 +25,8 @@ describe("deployment env helpers", () => {
       DATABASE_URL: "file:/var/task/prisma/preview.db?mode=ro",
       ADMIN_PASSWORD: "admin-password",
       NEXT_PUBLIC_SITE_URL: "https://example.com",
-      SITE_ACCESS_ENABLED: "true"
+      SITE_ACCESS_ENABLED: "true",
+      PRINT_FILE_STORAGE_PROVIDER: "local"
     });
 
     expect(result.ok).toBe(false);
@@ -39,6 +42,7 @@ describe("deployment env helpers", () => {
       ADMIN_PASSWORD: "admin-password",
       NEXT_PUBLIC_SITE_URL: "https://example.com",
       SITE_ACCESS_ENABLED: "false",
+      PRINT_FILE_STORAGE_PROVIDER: "local",
       PLUGO_API_BASE_URL: "https://api.example.test",
       PLUGO_API_KEY: "plugo-api-key"
     });
@@ -56,6 +60,7 @@ describe("deployment env helpers", () => {
       ADMIN_PASSWORD: "admin-password",
       NEXT_PUBLIC_SITE_URL: "https://example.com",
       SITE_ACCESS_ENABLED: "false",
+      PRINT_FILE_STORAGE_PROVIDER: "local",
       PORTFOLIO_STORAGE_PROVIDER: "naver-object-storage",
       NAVER_OBJECT_STORAGE_BUCKET: "bucket"
     });
@@ -71,13 +76,35 @@ describe("deployment env helpers", () => {
     ]);
   });
 
+  it("requires private Naver variables for print-file storage when selected", () => {
+    const result = checkDeploymentEnv({
+      DATABASE_URL: "postgresql://example.invalid/db",
+      DIRECT_URL: "postgresql://example.invalid/db",
+      ADMIN_PASSWORD: "admin-password",
+      NEXT_PUBLIC_SITE_URL: "https://example.com",
+      SITE_ACCESS_ENABLED: "false",
+      PRINT_FILE_STORAGE_PROVIDER: "naver-object-storage"
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.printFileStorage).toBe("naver-object-storage");
+    expect(result.missing).toEqual([
+      "NAVER_OBJECT_STORAGE_ACCESS_KEY",
+      "NAVER_OBJECT_STORAGE_SECRET_KEY",
+      "NAVER_OBJECT_STORAGE_BUCKET",
+      "NAVER_OBJECT_STORAGE_ENDPOINT",
+      "NAVER_OBJECT_STORAGE_REGION"
+    ]);
+  });
+
   it("formats results without exposing secret values", () => {
     const result = checkDeploymentEnv({
       DATABASE_URL: "file:./dev.db",
       DIRECT_URL: "postgresql://example.invalid/db",
       ADMIN_PASSWORD: "secret-value",
       NEXT_PUBLIC_SITE_URL: "",
-      SITE_ACCESS_ENABLED: "false"
+      SITE_ACCESS_ENABLED: "false",
+      PRINT_FILE_STORAGE_PROVIDER: "local"
     });
 
     const formatted = formatDeploymentEnvCheck(result);

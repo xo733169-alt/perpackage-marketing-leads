@@ -25,7 +25,26 @@ export const OPTIONAL_DEPLOYMENT_ENV_KEYS = [
   "NAVER_OBJECT_STORAGE_BUCKET",
   "NAVER_OBJECT_STORAGE_ENDPOINT",
   "NAVER_OBJECT_STORAGE_REGION",
-  "NAVER_OBJECT_STORAGE_PUBLIC_BASE_URL"
+  "NAVER_OBJECT_STORAGE_PUBLIC_BASE_URL",
+  "NEXT_PUBLIC_SUPABASE_URL",
+  "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+  "SUPABASE_SERVICE_ROLE_KEY",
+  "UPLOAD_MAX_FILE_SIZE_MB",
+  "UPLOAD_MAX_ZIP_SIZE_MB",
+  "UPLOAD_MAX_PROJECT_SIZE_MB",
+  "UPLOAD_ALLOWED_EXTENSIONS",
+  "UPLOAD_SIGNED_URL_EXPIRES_SECONDS",
+  "PRINT_FILE_STORAGE_PROVIDER",
+  "UPLOAD_LOCAL_STORAGE_DIR",
+  "UPLOAD_LOCAL_STORAGE_SECRET",
+  "ADMIN_UPLOAD_ACCESS_MODE",
+  "CAFE24_MALL_ID",
+  "CAFE24_CLIENT_ID",
+  "CAFE24_CLIENT_SECRET",
+  "CAFE24_REDIRECT_URI",
+  "CAFE24_WEBHOOK_SECRET",
+  "CAFE24_API_VERSION",
+  "CAFE24_SCOPES"
 ] as const;
 
 const PLUGO_REQUIRED_ENV_KEYS = ["PLUGO_API_BASE_URL", "PLUGO_API_KEY", "PLUGO_SECRET_KEY"] as const;
@@ -36,6 +55,13 @@ const NAVER_OBJECT_STORAGE_REQUIRED_ENV_KEYS = [
   "NAVER_OBJECT_STORAGE_ENDPOINT",
   "NAVER_OBJECT_STORAGE_REGION",
   "NAVER_OBJECT_STORAGE_PUBLIC_BASE_URL"
+] as const;
+const CAFE24_REQUIRED_ENV_KEYS = [
+  "CAFE24_MALL_ID",
+  "CAFE24_CLIENT_ID",
+  "CAFE24_CLIENT_SECRET",
+  "CAFE24_REDIRECT_URI",
+  "CAFE24_WEBHOOK_SECRET"
 ] as const;
 
 type EnvMap = Record<string, string | undefined>;
@@ -48,6 +74,7 @@ export type DeploymentEnvCheckResult = {
   databaseMode: "sqlite-file" | "other" | "missing";
   plugoApi: "configured" | "partial" | "missing";
   portfolioStorage: "local" | "vercel-blob" | "naver-object-storage" | "unsupported";
+  printFileStorage: "local" | "naver-object-storage" | "unsupported";
 };
 
 function hasValue(value: string | undefined): boolean {
@@ -62,9 +89,13 @@ function getDatabaseMode(databaseUrl: string | undefined): DeploymentEnvCheckRes
 export function checkDeploymentEnv(env: EnvMap = process.env): DeploymentEnvCheckResult {
   const missing: string[] = REQUIRED_DEPLOYMENT_ENV_KEYS.filter((key) => !hasValue(env[key]));
   const warnings: string[] = [];
+  const addMissing = (key: string) => {
+    if (!missing.includes(key)) missing.push(key);
+  };
   const siteAccessEnabled = env.SITE_ACCESS_ENABLED === "true";
   const databaseMode = getDatabaseMode(env.DATABASE_URL);
   const portfolioStorageProvider = (env.PORTFOLIO_STORAGE_PROVIDER || "local").trim().toLowerCase();
+  const printFileStorageProvider = (env.PRINT_FILE_STORAGE_PROVIDER || "naver-object-storage").trim().toLowerCase();
   const portfolioStorage: DeploymentEnvCheckResult["portfolioStorage"] =
     portfolioStorageProvider === "local" || portfolioStorageProvider === ""
       ? "local"
@@ -74,6 +105,12 @@ export function checkDeploymentEnv(env: EnvMap = process.env): DeploymentEnvChec
           ? "naver-object-storage"
           : "unsupported";
   const plugoKeysPresent = PLUGO_REQUIRED_ENV_KEYS.filter((key) => hasValue(env[key]));
+  const printFileStorage: DeploymentEnvCheckResult["printFileStorage"] =
+    printFileStorageProvider === "local"
+      ? "local"
+      : printFileStorageProvider === "naver-object-storage" || printFileStorageProvider === "naver"
+        ? "naver-object-storage"
+        : "unsupported";
   const plugoApi =
     plugoKeysPresent.length === 0
       ? "missing"
@@ -83,11 +120,11 @@ export function checkDeploymentEnv(env: EnvMap = process.env): DeploymentEnvChec
 
   if (siteAccessEnabled) {
     if (!hasValue(env.SITE_ACCESS_PASSWORD)) {
-      missing.push("SITE_ACCESS_PASSWORD");
+      addMissing("SITE_ACCESS_PASSWORD");
     }
 
     if (!hasValue(env.SITE_ACCESS_SECRET)) {
-      missing.push("SITE_ACCESS_SECRET");
+      addMissing("SITE_ACCESS_SECRET");
     }
   }
 
@@ -96,7 +133,7 @@ export function checkDeploymentEnv(env: EnvMap = process.env): DeploymentEnvChec
   }
 
   if (databaseMode === "other" && !hasValue(env.DIRECT_URL)) {
-    missing.push("DIRECT_URL");
+    addMissing("DIRECT_URL");
   }
 
   if (env.SITE_ACCESS_ENABLED && env.SITE_ACCESS_ENABLED !== "true" && env.SITE_ACCESS_ENABLED !== "false") {
@@ -105,7 +142,7 @@ export function checkDeploymentEnv(env: EnvMap = process.env): DeploymentEnvChec
 
   if (plugoApi === "partial") {
     PLUGO_REQUIRED_ENV_KEYS.forEach((key) => {
-      if (!hasValue(env[key])) missing.push(key);
+      if (!hasValue(env[key])) addMissing(key);
     });
   }
 
@@ -114,17 +151,38 @@ export function checkDeploymentEnv(env: EnvMap = process.env): DeploymentEnvChec
   }
 
   if (portfolioStorage === "vercel-blob" && !hasValue(env.BLOB_READ_WRITE_TOKEN)) {
-    missing.push("BLOB_READ_WRITE_TOKEN");
+    addMissing("BLOB_READ_WRITE_TOKEN");
   }
 
   if (portfolioStorage === "naver-object-storage") {
     NAVER_OBJECT_STORAGE_REQUIRED_ENV_KEYS.forEach((key) => {
-      if (!hasValue(env[key])) missing.push(key);
+      if (!hasValue(env[key])) addMissing(key);
     });
   }
 
   if (portfolioStorage === "unsupported") {
     warnings.push("PORTFOLIO_STORAGE_PROVIDER should be local, vercel-blob, or naver-object-storage.");
+  }
+
+  if (printFileStorage === "local") {
+    warnings.push("Print-file storage is local. Use Naver Object Storage before production operation.");
+  }
+
+  if (printFileStorage === "naver-object-storage") {
+    NAVER_OBJECT_STORAGE_REQUIRED_ENV_KEYS.slice(0, 5).forEach((key) => {
+      if (!hasValue(env[key])) addMissing(key);
+    });
+  }
+
+  if (printFileStorage === "unsupported") {
+    warnings.push("PRINT_FILE_STORAGE_PROVIDER should be local or naver-object-storage.");
+  }
+
+  const cafe24KeysPresent = CAFE24_REQUIRED_ENV_KEYS.filter((key) => hasValue(env[key]));
+  if (cafe24KeysPresent.length > 0 && cafe24KeysPresent.length < CAFE24_REQUIRED_ENV_KEYS.length) {
+    CAFE24_REQUIRED_ENV_KEYS.forEach((key) => {
+      if (!hasValue(env[key])) addMissing(key);
+    });
   }
 
   if (hasValue(env.NEXT_PUBLIC_PLUGO_API_KEY) || hasValue(env.NEXT_PUBLIC_PLUGO_SECRET_KEY)) {
@@ -138,7 +196,8 @@ export function checkDeploymentEnv(env: EnvMap = process.env): DeploymentEnvChec
     siteAccessEnabled,
     databaseMode,
     plugoApi,
-    portfolioStorage
+    portfolioStorage,
+    printFileStorage
   };
 }
 
@@ -148,7 +207,8 @@ export function formatDeploymentEnvCheck(result: DeploymentEnvCheckResult): stri
     `Site access: ${result.siteAccessEnabled ? "enabled" : "disabled"}`,
     `Database mode: ${result.databaseMode}`,
     `Plugo API: ${result.plugoApi}`,
-    `Portfolio storage: ${result.portfolioStorage}`
+    `Portfolio storage: ${result.portfolioStorage}`,
+    `Print-file storage: ${result.printFileStorage}`
   ];
 
   if (result.missing.length) {
