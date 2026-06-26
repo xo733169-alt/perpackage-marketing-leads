@@ -2,6 +2,11 @@ import type { NextResponse } from "next/server";
 
 const SITE_ACCESS_COOKIE_NAME = "perpackage_site_access";
 const SITE_ACCESS_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
+const SITE_ACCESS_BYPASS_PATHS = new Set([
+  "/api/cafe24/oauth/start",
+  "/api/cafe24/oauth/callback",
+  "/api/cafe24/webhooks/orders"
+]);
 
 type SiteAccessEnv = Pick<NodeJS.ProcessEnv, "SITE_ACCESS_ENABLED" | "SITE_ACCESS_PASSWORD" | "SITE_ACCESS_SECRET" | "NODE_ENV">;
 
@@ -154,6 +159,7 @@ export function isSiteAccessBypassPath(pathname: string): boolean {
   if (pathname === "/robots.txt" || pathname === "/sitemap.xml") return true;
   if (pathname === "/favicon.ico" || pathname === "/icon.svg") return true;
   if (pathname === "/api/health") return true;
+  if (SITE_ACCESS_BYPASS_PATHS.has(pathname)) return true;
   if (pathname.startsWith("/api/site-access/")) return true;
   if (pathname.startsWith("/_next/")) return true;
   if (/\.(?:css|js|map|png|jpg|jpeg|gif|svg|ico|webp|avif|txt|xml|woff2?)$/i.test(pathname)) return true;

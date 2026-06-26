@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   createSiteAccessCookieValue,
   getRobotsRulesForSiteAccess,
+  isSiteAccessBypassPath,
   isSiteAccessEnabled,
   shouldAllowRequestWithSiteAccess,
   validateSiteAccessPassword,
@@ -48,6 +49,17 @@ describe("site access helpers", () => {
     expect(shouldAllowRequestWithSiteAccess({ enabled: true, pathname: "/access", hasValidCookie: false })).toBe(true);
     expect(shouldAllowRequestWithSiteAccess({ enabled: true, pathname: "/api/health", hasValidCookie: false })).toBe(true);
     expect(shouldAllowRequestWithSiteAccess({ enabled: true, pathname: "/api/site-access/login", hasValidCookie: false })).toBe(true);
+  });
+
+  it("bypasses site access for Cafe24 external callbacks while keeping admin pages protected", () => {
+    expect(isSiteAccessBypassPath("/api/cafe24/webhooks/orders")).toBe(true);
+    expect(isSiteAccessBypassPath("/api/cafe24/oauth/start")).toBe(true);
+    expect(isSiteAccessBypassPath("/api/cafe24/oauth/callback")).toBe(true);
+
+    expect(shouldAllowRequestWithSiteAccess({ enabled: true, pathname: "/api/cafe24/webhooks/orders", hasValidCookie: false })).toBe(true);
+    expect(shouldAllowRequestWithSiteAccess({ enabled: true, pathname: "/api/cafe24/oauth/callback", hasValidCookie: false })).toBe(true);
+    expect(shouldAllowRequestWithSiteAccess({ enabled: true, pathname: "/admin/cafe24", hasValidCookie: false })).toBe(false);
+    expect(shouldAllowRequestWithSiteAccess({ enabled: true, pathname: "/admin/uploads", hasValidCookie: false })).toBe(false);
   });
 
   it("validates login payload", () => {
