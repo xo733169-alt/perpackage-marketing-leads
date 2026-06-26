@@ -5,6 +5,8 @@ import {
   extractCafe24OrderInfo,
   fetchCafe24OrderDetail,
   getCafe24ConfigStatus,
+  getCafe24WebhookAuthFailureReason,
+  inspectCafe24WebhookAuthHeaders,
   linkCafe24OrderToUploadProject,
   redactSensitivePayload,
   verifyCafe24WebhookRequest
@@ -25,6 +27,14 @@ export async function POST(request: Request) {
   const rawBody = await request.text();
 
   if (!verifyCafe24WebhookRequest({ rawBody, headers: request.headers })) {
+    const authInspection = inspectCafe24WebhookAuthHeaders(request.headers);
+    console.warn("[api/cafe24/webhooks/orders] unauthorized", {
+      reason: getCafe24WebhookAuthFailureReason({ headers: request.headers }),
+      directTokenHeaderNames: authInspection.directTokenHeaderNames,
+      signatureHeaderNames: authInspection.signatureHeaderNames,
+      unsupportedCafe24HeaderNames: authInspection.unsupportedCafe24HeaderNames,
+      receivedHeaderNames: authInspection.receivedHeaderNames
+    });
     return json("UNAUTHORIZED", 401);
   }
 

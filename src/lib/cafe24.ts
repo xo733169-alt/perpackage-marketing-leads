@@ -236,11 +236,78 @@ function normalizeBearerValue(value: string): string {
   return value.replace(/^bearer\s+/i, "").trim();
 }
 
+const CAFE24_WEBHOOK_DIRECT_TOKEN_HEADERS = [
+  "x-cafe24-webhook-secret",
+  "x-cafe24-webhook-auth",
+  "x-cafe24-webhook-token",
+  "x-cafe24-webhook-key",
+  "x-cafe24-webhook-authentication",
+  "x-cafe24-auth",
+  "x-cafe24-authentication",
+  "x-cafe24-token",
+  "x-cafe24-secret",
+  "x-webhook-secret",
+  "x-webhook-token",
+  "authorization"
+] as const;
+
+const CAFE24_WEBHOOK_SIGNATURE_HEADERS = [
+  "x-cafe24-hmac-sha256",
+  "x-cafe24-hmac",
+  "x-cafe24-signature",
+  "x-cafe24-webhook-signature",
+  "x-cafe24-webhook-hmac",
+  "x-cafe24-webhook-hmac-sha256",
+  "x-cafe24-sha256",
+  "x-hub-signature-256",
+  "x-webhook-signature",
+  "x-signature"
+] as const;
+
+const CAFE24_WEBHOOK_AUTH_HEADERS = new Set<string>([
+  ...CAFE24_WEBHOOK_DIRECT_TOKEN_HEADERS,
+  ...CAFE24_WEBHOOK_SIGNATURE_HEADERS
+]);
+
 function verifyHmacSignature(rawBody: string, secret: string, signature: string): boolean {
   const normalized = signature.replace(/^sha256=/i, "").trim();
   const hexDigest = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
   const base64Digest = crypto.createHmac("sha256", secret).update(rawBody).digest("base64");
   return safeEqual(normalized, hexDigest) || safeEqual(normalized, base64Digest);
+}
+
+export function inspectCafe24WebhookAuthHeaders(headers: Headers) {
+  const receivedHeaderNames = Array.from(headers.keys()).map((header) => header.toLowerCase()).sort();
+  const directTokenHeaderNames = CAFE24_WEBHOOK_DIRECT_TOKEN_HEADERS.filter((header) => Boolean(headers.get(header)));
+  const signatureHeaderNames = CAFE24_WEBHOOK_SIGNATURE_HEADERS.filter((header) => Boolean(headers.get(header)));
+  const unsupportedCafe24HeaderNames = receivedHeaderNames.filter(
+    (header) => header.startsWith("x-cafe24") && !CAFE24_WEBHOOK_AUTH_HEADERS.has(header)
+  );
+
+  return {
+    receivedHeaderNames,
+    directTokenHeaderNames,
+    signatureHeaderNames,
+    unsupportedCafe24HeaderNames
+  };
+}
+
+export function getCafe24WebhookAuthFailureReason({
+  headers,
+  env = process.env
+}: {
+  headers: Headers;
+  env?: Cafe24Env | Record<string, string | undefined>;
+}): "secret_missing" | "auth_header_missing_or_unsupported" | "auth_mismatch" {
+  const secret = readEnv(env).webhookSecret;
+  if (!secret) return "secret_missing";
+
+  const inspection = inspectCafe24WebhookAuthHeaders(headers);
+  if (!inspection.directTokenHeaderNames.length && !inspection.signatureHeaderNames.length) {
+    return "auth_header_missing_or_unsupported";
+  }
+
+  return "auth_mismatch";
 }
 
 export function verifyCafe24WebhookRequest({
@@ -255,25 +322,13 @@ export function verifyCafe24WebhookRequest({
   const secret = readEnv(env).webhookSecret;
   if (!secret) return false;
 
-  const directToken = getHeader(headers, [
-    "x-cafe24-webhook-secret",
-    "x-cafe24-webhook-auth",
-    "x-cafe24-webhook-token",
-    "x-cafe24-auth",
-    "x-webhook-secret",
-    "authorization"
-  ]);
+  const directToken = getHeader(headers, [...CAFE24_WEBHOOK_DIRECT_TOKEN_HEADERS]);
 
   if (directToken && safeEqual(normalizeBearerValue(directToken), secret)) {
     return true;
   }
 
-  const signature = getHeader(headers, [
-    "x-cafe24-hmac-sha256",
-    "x-cafe24-signature",
-    "x-cafe24-webhook-signature",
-    "x-hub-signature-256"
-  ]);
+  const signature = getHeader(headers, [...CAFE24_WEBHOOK_SIGNATURE_HEADERS]);
 
   return signature ? verifyHmacSignature(rawBody, secret, signature) : false;
 }

@@ -4,7 +4,9 @@ import {
   buildCafe24OAuthAuthorizeUrl,
   createCafe24OAuthState,
   extractCafe24OrderInfo,
+  getCafe24WebhookAuthFailureReason,
   getCafe24ConfigStatus,
+  inspectCafe24WebhookAuthHeaders,
   redactSensitivePayload,
   verifyCafe24OAuthState,
   verifyCafe24WebhookRequest
@@ -76,7 +78,17 @@ describe("Cafe24 upload-code integration helpers", () => {
     })).toBe(true);
     expect(verifyCafe24WebhookRequest({
       rawBody,
+      headers: new Headers({ "x-cafe24-webhook-key": cafe24Env.CAFE24_WEBHOOK_SECRET }),
+      env: cafe24Env
+    })).toBe(true);
+    expect(verifyCafe24WebhookRequest({
+      rawBody,
       headers: new Headers({ "x-cafe24-hmac-sha256": hmac }),
+      env: cafe24Env
+    })).toBe(true);
+    expect(verifyCafe24WebhookRequest({
+      rawBody,
+      headers: new Headers({ "x-webhook-signature": hmac }),
       env: cafe24Env
     })).toBe(true);
     expect(verifyCafe24WebhookRequest({
@@ -84,6 +96,21 @@ describe("Cafe24 upload-code integration helpers", () => {
       headers: new Headers({ "x-cafe24-webhook-secret": "wrong" }),
       env: cafe24Env
     })).toBe(false);
+  });
+
+  it("reports webhook auth failure reasons without exposing values", () => {
+    const headers = new Headers({
+      "x-cafe24-event-type": "sample",
+      "x-cafe24-webhook-secret": "wrong"
+    });
+    const inspection = inspectCafe24WebhookAuthHeaders(headers);
+
+    expect(inspection.directTokenHeaderNames).toEqual(["x-cafe24-webhook-secret"]);
+    expect(inspection.unsupportedCafe24HeaderNames).toEqual(["x-cafe24-event-type"]);
+    expect(JSON.stringify(inspection)).not.toContain("wrong");
+    expect(getCafe24WebhookAuthFailureReason({ headers, env: cafe24Env })).toBe("auth_mismatch");
+    expect(getCafe24WebhookAuthFailureReason({ headers: new Headers(), env: cafe24Env })).toBe("auth_header_missing_or_unsupported");
+    expect(getCafe24WebhookAuthFailureReason({ headers, env: { ...cafe24Env, CAFE24_WEBHOOK_SECRET: "" } })).toBe("secret_missing");
   });
 
   it("redacts sensitive payload fields before storage", () => {
