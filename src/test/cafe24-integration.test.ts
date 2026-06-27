@@ -1,11 +1,13 @@
 import crypto from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
+  appendCafe24WebhookDebugInfo,
   buildCafe24OAuthAuthorizeUrl,
   createCafe24OAuthState,
   extractCafe24OrderInfo,
   getCafe24WebhookAuthFailureReason,
   getCafe24ConfigStatus,
+  getCafe24WebhookDebugInfo,
   inspectCafe24WebhookAuthHeaders,
   isCafe24TestWebhookPayload,
   redactSensitivePayload,
@@ -62,10 +64,48 @@ describe("Cafe24 upload-code integration helpers", () => {
     const info = extractCafe24OrderInfo(payload, "peerl");
 
     expect(info.mallId).toBe("peerl");
+    expect(info.eventId).toBe("90157");
     expect(info.orderId).toBe("Tb1dbe01667974041111");
     expect(info.orderNo).toBe("Tb1dbe01667974041111");
     expect(isCafe24TestWebhookPayload(payload)).toBe(true);
     expect(isCafe24TestWebhookPayload({ resource: { client_id: "real-client", order_id: "20260627-0001" } })).toBe(false);
+  });
+
+  it("stores and reads safe webhook debug information without exposing secrets", () => {
+    const payloadJson = appendCafe24WebhookDebugInfo(redactSensitivePayload({
+      access_token: "access",
+      refresh_token: "refresh",
+      resource: {
+        mall_id: "peerl",
+        order_id: "20260627-0001"
+      }
+    }), {
+      mallId: "peerl",
+      orderId: "20260627-0001",
+      eventType: "order.paid",
+      tokenLookupMallId: "peerl",
+      orderDetailLookupStatus: "SUCCESS",
+      orderDetailLookupMessage: "Cafe24 order detail fetched.",
+      orderDetailLookupAt: "2026-06-27T01:00:00.000Z"
+    });
+    const debug = getCafe24WebhookDebugInfo({
+      payloadJson,
+      status: "LINKED",
+      mallId: null,
+      orderId: null,
+      eventType: null,
+      errorMessage: null
+    }, "fallback");
+    const serialized = JSON.stringify(payloadJson);
+
+    expect(debug.mallId).toBe("peerl");
+    expect(debug.orderId).toBe("20260627-0001");
+    expect(debug.eventType).toBe("order.paid");
+    expect(debug.tokenLookupMallId).toBe("peerl");
+    expect(debug.orderDetailLookupStatus).toBe("SUCCESS");
+    expect(serialized).toContain("[REDACTED]");
+    expect(serialized).not.toContain('"access"');
+    expect(serialized).not.toContain('"refresh"');
   });
 
   it("creates and verifies signed OAuth state values", () => {

@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { AdminNav } from "@/components/AdminNav";
 import { formatDateTime, formatOptionalText } from "@/lib/admin-uploads";
 import { isAdminAuthenticated } from "@/lib/auth";
-import { getCafe24ConfigStatus } from "@/lib/cafe24";
+import { getCafe24ConfigStatus, getCafe24WebhookDebugInfo } from "@/lib/cafe24";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -26,9 +26,10 @@ export default async function AdminCafe24Page({
   }
 
   const config = getCafe24ConfigStatus();
+  const fallbackMallId = process.env.CAFE24_MALL_ID?.trim() || null;
   const token = config.hasMallId
     ? await prisma.cafe24Token.findUnique({
-      where: { mallId: process.env.CAFE24_MALL_ID?.trim() || "" }
+      where: { mallId: fallbackMallId || "" }
     })
     : null;
   const webhookEvents = await prisma.cafe24WebhookEvent.findMany({
@@ -136,45 +137,60 @@ export default async function AdminCafe24Page({
           <h2 className="text-lg font-bold text-ink">최근 Webhook 수신 로그</h2>
           <div className="mt-4 overflow-hidden rounded-lg border border-line">
             <div className="overflow-x-auto">
-              <table className="min-w-[980px] w-full border-collapse text-left text-sm">
+              <table className="min-w-[1320px] w-full border-collapse text-left text-sm">
                 <thead className="bg-ivory text-xs font-bold uppercase text-charcoal">
                   <tr>
                     <th className="px-4 py-3">상태</th>
-                    <th className="px-4 py-3">이벤트</th>
-                    <th className="px-4 py-3">주문번호</th>
+                    <th className="px-4 py-3">event type</th>
+                    <th className="px-4 py-3">mall_id</th>
+                    <th className="px-4 py-3">order_no</th>
+                    <th className="px-4 py-3">order_id</th>
+                    <th className="px-4 py-3">tokenLookupMallId</th>
+                    <th className="px-4 py-3">주문 상세 조회</th>
                     <th className="px-4 py-3">접수번호</th>
                     <th className="px-4 py-3">연결 프로젝트</th>
-                    <th className="px-4 py-3">수신</th>
-                    <th className="px-4 py-3">처리</th>
-                    <th className="px-4 py-3">오류</th>
+                    <th className="px-4 py-3">received_at</th>
+                    <th className="px-4 py-3">processed_at</th>
+                    <th className="px-4 py-3">메시지</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line">
                   {webhookEvents.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-4 py-10 text-center text-neutral-500">
+                      <td colSpan={12} className="px-4 py-10 text-center text-neutral-500">
                         아직 수신된 Webhook 로그가 없습니다.
                       </td>
                     </tr>
                   ) : (
-                    webhookEvents.map((event) => (
-                      <tr key={event.id} className="align-top">
-                        <td className="px-4 py-3 font-bold text-ink">{event.status}</td>
-                        <td className="px-4 py-3 text-neutral-700">{formatOptionalText(event.eventType)}</td>
-                        <td className="px-4 py-3 text-neutral-700">{formatOptionalText(event.orderNo ?? event.orderId)}</td>
-                        <td className="px-4 py-3 font-semibold text-ink">{formatOptionalText(event.uploadCode)}</td>
-                        <td className="px-4 py-3 text-neutral-700">
-                          {event.uploadProject ? (
-                            <Link href={`/admin/uploads/${event.uploadProject.id}`} className="font-semibold text-ink underline">
-                              {event.uploadProject.uploadCode ?? event.uploadProject.companyName ?? event.uploadProject.customerName}
-                            </Link>
-                          ) : "-"}
-                        </td>
-                        <td className="px-4 py-3 text-neutral-700">{formatDateTime(event.createdAt)}</td>
-                        <td className="px-4 py-3 text-neutral-700">{formatDateTime(event.processedAt)}</td>
-                        <td className="px-4 py-3 text-red-700">{formatOptionalText(event.errorMessage)}</td>
-                      </tr>
-                    ))
+                    webhookEvents.map((event) => {
+                      const debug = getCafe24WebhookDebugInfo(event, fallbackMallId);
+
+                      return (
+                        <tr key={event.id} className="align-top">
+                          <td className="px-4 py-3 font-bold text-ink">{event.status}</td>
+                          <td className="px-4 py-3 text-neutral-700">{formatOptionalText(debug.eventType ?? event.eventType)}</td>
+                          <td className="px-4 py-3 text-neutral-700">{formatOptionalText(debug.mallId)}</td>
+                          <td className="px-4 py-3 text-neutral-700">{formatOptionalText(event.orderNo ?? event.orderId)}</td>
+                          <td className="px-4 py-3 text-neutral-700">{formatOptionalText(debug.orderId ?? event.orderId)}</td>
+                          <td className="px-4 py-3 text-neutral-700">{formatOptionalText(debug.tokenLookupMallId)}</td>
+                          <td className="px-4 py-3 text-neutral-700">
+                            <div className="font-semibold text-ink">{debug.orderDetailLookupStatus}</div>
+                            <div className="mt-1 max-w-[260px] text-xs leading-5 text-neutral-500">{formatOptionalText(debug.orderDetailLookupMessage)}</div>
+                          </td>
+                          <td className="px-4 py-3 font-semibold text-ink">{formatOptionalText(event.uploadCode)}</td>
+                          <td className="px-4 py-3 text-neutral-700">
+                            {event.uploadProject ? (
+                              <Link href={`/admin/uploads/${event.uploadProject.id}`} className="font-semibold text-ink underline">
+                                {event.uploadProject.uploadCode ?? event.uploadProject.companyName ?? event.uploadProject.customerName}
+                              </Link>
+                            ) : "-"}
+                          </td>
+                          <td className="px-4 py-3 text-neutral-700">{formatDateTime(event.createdAt)}</td>
+                          <td className="px-4 py-3 text-neutral-700">{formatDateTime(event.processedAt)}</td>
+                          <td className="px-4 py-3 text-red-700">{formatOptionalText(event.errorMessage ?? debug.orderDetailLookupMessage)}</td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>

@@ -12,6 +12,7 @@ export const CAFE24_LINK_SOURCE_MANUAL = "MANUAL";
 const DEFAULT_CAFE24_API_VERSION = "2024-06-01";
 const OAUTH_STATE_MAX_AGE_SECONDS = 10 * 60;
 const TOKEN_REFRESH_MARGIN_MS = 3 * 60 * 1000;
+const WEBHOOK_DEBUG_KEY = "_perpackage_debug";
 const DEFAULT_SCOPES = [
   "mall.read_application",
   "mall.write_application",
@@ -81,6 +82,26 @@ export type LinkCafe24OrderResult = {
   status: "LINKED" | "SKIPPED" | "FAILED";
   message: string;
   projectId?: string;
+};
+
+export type Cafe24OrderDetailLookupStatus =
+  | "NOT_ATTEMPTED"
+  | "SKIPPED_TEST_PAYLOAD"
+  | "NOT_ATTEMPTED_UPLOAD_CODE_PRESENT"
+  | "NOT_ATTEMPTED_NO_ORDER_ID"
+  | "NOT_ATTEMPTED_CONFIG_MISSING"
+  | "ATTEMPTING"
+  | "SUCCESS"
+  | "FAILED";
+
+export type Cafe24WebhookSafeDebugInfo = {
+  mallId: string | null;
+  orderId: string | null;
+  eventType: string | null;
+  tokenLookupMallId: string | null;
+  orderDetailLookupStatus: Cafe24OrderDetailLookupStatus;
+  orderDetailLookupMessage: string | null;
+  orderDetailLookupAt: string | null;
 };
 
 type Cafe24TokenResponse = {
@@ -351,6 +372,9 @@ function findStringByKeys(value: unknown, candidateKeys: string[], depth = 0): s
       if (normalizedCandidates.has(normalizeKey(key)) && typeof item === "string" && item.trim()) {
         return item.trim();
       }
+      if (normalizedCandidates.has(normalizeKey(key)) && typeof item === "number" && Number.isFinite(item)) {
+        return String(item);
+      }
     }
 
     for (const item of Object.values(value)) {
@@ -407,8 +431,8 @@ export function extractCafe24OrderInfo(payload: unknown, fallbackMallId?: string
   ]);
 
   return {
-    eventType: findStringByKeys(payload, ["event_type", "eventType", "event", "resource_type", "resourceType"]),
-    eventId: findStringByKeys(payload, ["event_id", "eventId", "webhook_id", "webhookId", "id"]),
+    eventType: findStringByKeys(payload, ["event_type", "eventType", "event_name", "eventName", "event", "resource_type", "resourceType"]),
+    eventId: findStringByKeys(payload, ["event_id", "eventId", "event_no", "eventNo", "webhook_id", "webhookId", "id"]),
     mallId: findStringByKeys(payload, ["mall_id", "mallId", "mall"]) ?? fallbackMallId ?? null,
     orderId: findStringByKeys(payload, ["order_id", "orderId", "order_code", "orderCode"]),
     orderNo: findStringByKeys(payload, ["order_no", "orderNo", "order_number", "orderNumber", "order_id", "orderId"]),
@@ -449,6 +473,93 @@ export function redactSensitivePayload(value: unknown, depth = 0): Prisma.InputJ
   }
 
   return String(value);
+}
+
+function readDebugString(debug: Record<string, unknown>, key: keyof Cafe24WebhookSafeDebugInfo): string | null {
+  const value = debug[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function readDebugLookupStatus(debug: Record<string, unknown>): Cafe24OrderDetailLookupStatus | null {
+  const value = readDebugString(debug, "orderDetailLookupStatus");
+  const allowed = new Set<Cafe24OrderDetailLookupStatus>([
+    "NOT_ATTEMPTED",
+    "SKIPPED_TEST_PAYLOAD",
+    "NOT_ATTEMPTED_UPLOAD_CODE_PRESENT",
+    "NOT_ATTEMPTED_NO_ORDER_ID",
+    "NOT_ATTEMPTED_CONFIG_MISSING",
+    "ATTEMPTING",
+    "SUCCESS",
+    "FAILED"
+  ]);
+
+  return value && allowed.has(value as Cafe24OrderDetailLookupStatus) ? value as Cafe24OrderDetailLookupStatus : null;
+}
+
+export function appendCafe24WebhookDebugInfo(
+  payloadJson: Prisma.InputJsonValue,
+  debug: Cafe24WebhookSafeDebugInfo
+): Prisma.InputJsonValue {
+  const safeDebug: Prisma.InputJsonObject = {
+    mallId: debug.mallId,
+    orderId: debug.orderId,
+    eventType: debug.eventType,
+    tokenLookupMallId: debug.tokenLookupMallId,
+    orderDetailLookupStatus: debug.orderDetailLookupStatus,
+    orderDetailLookupMessage: debug.orderDetailLookupMessage,
+    orderDetailLookupAt: debug.orderDetailLookupAt
+  };
+
+  if (isRecord(payloadJson)) {
+    return {
+      ...(payloadJson as Prisma.InputJsonObject),
+      [WEBHOOK_DEBUG_KEY]: safeDebug
+    };
+  }
+
+  return {
+    payload: payloadJson,
+    [WEBHOOK_DEBUG_KEY]: safeDebug
+  };
+}
+
+export function getCafe24WebhookDebugInfo(
+  event: {
+    payloadJson?: unknown;
+    eventType?: string | null;
+    mallId?: string | null;
+    orderId?: string | null;
+    status?: string | null;
+    errorMessage?: string | null;
+  },
+  fallbackMallId?: string | null
+): Cafe24WebhookSafeDebugInfo {
+  const debug = isRecord(event.payloadJson) && isRecord(event.payloadJson[WEBHOOK_DEBUG_KEY])
+    ? event.payloadJson[WEBHOOK_DEBUG_KEY]
+    : null;
+  const eventStatus = event.status ?? null;
+  const inferredStatus: Cafe24OrderDetailLookupStatus =
+    eventStatus === "SKIPPED_TEST_PAYLOAD" ? "SKIPPED_TEST_PAYLOAD" :
+      eventStatus === "ORDER_DETAIL_SYNC_FAILED" ? "FAILED" :
+        "NOT_ATTEMPTED";
+  const mallId = debug ? readDebugString(debug, "mallId") : null;
+  const orderId = debug ? readDebugString(debug, "orderId") : null;
+  const eventType = debug ? readDebugString(debug, "eventType") : null;
+  const tokenLookupMallId = debug ? readDebugString(debug, "tokenLookupMallId") : null;
+  const lookupStatus = debug ? readDebugLookupStatus(debug) : null;
+  const message = debug ? readDebugString(debug, "orderDetailLookupMessage") : null;
+  const lookupAt = debug ? readDebugString(debug, "orderDetailLookupAt") : null;
+  const resolvedMallId = event.mallId?.trim() || fallbackMallId?.trim() || null;
+
+  return {
+    mallId: mallId ?? resolvedMallId,
+    orderId: orderId ?? event.orderId?.trim() ?? null,
+    eventType: eventType ?? event.eventType?.trim() ?? null,
+    tokenLookupMallId: tokenLookupMallId ?? resolvedMallId,
+    orderDetailLookupStatus: lookupStatus ?? inferredStatus,
+    orderDetailLookupMessage: message ?? event.errorMessage ?? null,
+    orderDetailLookupAt: lookupAt
+  };
 }
 
 function normalizeScopes(value: string | string[] | undefined): string | null {
