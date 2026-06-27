@@ -7,6 +7,7 @@ import {
   getCafe24WebhookAuthFailureReason,
   getCafe24ConfigStatus,
   inspectCafe24WebhookAuthHeaders,
+  isCafe24TestWebhookPayload,
   redactSensitivePayload,
   verifyCafe24OAuthState,
   verifyCafe24WebhookRequest
@@ -47,6 +48,24 @@ describe("Cafe24 upload-code integration helpers", () => {
     expect(info.orderNo).toBe("20260626-0001");
     expect(info.memberId).toBe("member-1");
     expect(info.uploadCode).toBe("PP-UP-20260626-001");
+  });
+
+  it("uses the configured mallId fallback and detects Cafe24 test webhook payloads", () => {
+    const payload = {
+      event_no: 90157,
+      resource: {
+        client_id: "sample7eBNEqSfkd7I8hoA",
+        order_id: "Tb1dbe01667974041111",
+        app_name: "app_name"
+      }
+    };
+    const info = extractCafe24OrderInfo(payload, "peerl");
+
+    expect(info.mallId).toBe("peerl");
+    expect(info.orderId).toBe("Tb1dbe01667974041111");
+    expect(info.orderNo).toBe("Tb1dbe01667974041111");
+    expect(isCafe24TestWebhookPayload(payload)).toBe(true);
+    expect(isCafe24TestWebhookPayload({ resource: { client_id: "real-client", order_id: "20260627-0001" } })).toBe(false);
   });
 
   it("creates and verifies signed OAuth state values", () => {

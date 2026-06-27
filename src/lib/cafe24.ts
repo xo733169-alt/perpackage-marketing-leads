@@ -418,6 +418,15 @@ export function extractCafe24OrderInfo(payload: unknown, fallbackMallId?: string
   };
 }
 
+export function isCafe24TestWebhookPayload(payload: unknown): boolean {
+  const clientId = findStringByKeys(payload, ["client_id", "clientId"]);
+  if (clientId?.toLowerCase().startsWith("sample")) return true;
+
+  const orderId = findStringByKeys(payload, ["order_id", "orderId"]);
+  const appName = findStringByKeys(payload, ["app_name", "appName"]);
+  return Boolean(orderId?.startsWith("Tb") && appName?.toLowerCase() === "app_name");
+}
+
 function isSensitiveKey(key: string): boolean {
   return /token|secret|password|authorization|access[_-]?token|refresh[_-]?token|client[_-]?secret/i.test(key);
 }

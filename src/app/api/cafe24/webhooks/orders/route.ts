@@ -7,6 +7,7 @@ import {
   getCafe24ConfigStatus,
   getCafe24WebhookAuthFailureReason,
   inspectCafe24WebhookAuthHeaders,
+  isCafe24TestWebhookPayload,
   linkCafe24OrderToUploadProject,
   redactSensitivePayload,
   verifyCafe24WebhookRequest
@@ -48,6 +49,7 @@ export async function POST(request: Request) {
   const configStatus = getCafe24ConfigStatus();
   const fallbackMallId = process.env.CAFE24_MALL_ID?.trim() || null;
   let orderInfo = extractCafe24OrderInfo(payload, fallbackMallId);
+  const resolvedMallId = orderInfo.mallId?.trim() || fallbackMallId;
   let eventId: string | null = null;
 
   try {
@@ -55,7 +57,7 @@ export async function POST(request: Request) {
       data: {
         eventType: orderInfo.eventType ?? null,
         eventId: orderInfo.eventId ?? null,
-        mallId: orderInfo.mallId ?? fallbackMallId,
+        mallId: resolvedMallId,
         orderId: orderInfo.orderId ?? null,
         orderNo: orderInfo.orderNo ?? null,
         uploadCode: orderInfo.uploadCode ?? null,
@@ -76,13 +78,31 @@ export async function POST(request: Request) {
     return json("EVENT_SAVE_FAILED", 200);
   }
 
+  if (isCafe24TestWebhookPayload(payload)) {
+    const message = "Cafe24 test payload cannot be fetched as real order.";
+    await prisma.cafe24WebhookEvent.update({
+      where: { id: eventId },
+      data: {
+        status: "SKIPPED_TEST_PAYLOAD",
+        errorMessage: message,
+        processedAt: new Date()
+      }
+    });
+    console.info("[api/cafe24/webhooks/orders] skipped test payload", {
+      mallId: resolvedMallId,
+      tokenLookupMallId: resolvedMallId,
+      tokenLookupAttempted: false
+    });
+    return json("SKIPPED_TEST_PAYLOAD", 200, { message });
+  }
+
   if (!orderInfo.uploadCode && orderInfo.orderId && !configStatus.missing.length) {
     try {
       const detail = await fetchCafe24OrderDetail({
         orderId: orderInfo.orderId,
-        mallId: orderInfo.mallId
+        mallId: resolvedMallId
       });
-      const detailInfo = extractCafe24OrderInfo(detail, orderInfo.mallId ?? fallbackMallId);
+      const detailInfo = extractCafe24OrderInfo(detail, resolvedMallId);
       orderInfo = {
         ...orderInfo,
         ...Object.fromEntries(Object.entries(detailInfo).filter(([, value]) => value !== null && value !== undefined))
@@ -112,7 +132,7 @@ export async function POST(request: Request) {
   try {
     const result = await linkCafe24OrderToUploadProject({
       uploadCode: orderInfo.uploadCode,
-      mallId: orderInfo.mallId,
+      mallId: orderInfo.mallId?.trim() || resolvedMallId,
       orderId: orderInfo.orderId,
       orderNo: orderInfo.orderNo,
       memberId: orderInfo.memberId,
