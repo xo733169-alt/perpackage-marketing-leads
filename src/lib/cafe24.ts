@@ -246,6 +246,7 @@ const CAFE24_WEBHOOK_DIRECT_TOKEN_HEADERS = [
   "x-cafe24-authentication",
   "x-cafe24-token",
   "x-cafe24-secret",
+  "x-api-key",
   "x-webhook-secret",
   "x-webhook-token",
   "authorization"

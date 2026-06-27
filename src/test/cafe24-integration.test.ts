@@ -83,6 +83,11 @@ describe("Cafe24 upload-code integration helpers", () => {
     })).toBe(true);
     expect(verifyCafe24WebhookRequest({
       rawBody,
+      headers: new Headers({ "x-api-key": cafe24Env.CAFE24_WEBHOOK_SECRET }),
+      env: cafe24Env
+    })).toBe(true);
+    expect(verifyCafe24WebhookRequest({
+      rawBody,
       headers: new Headers({ "x-cafe24-hmac-sha256": hmac }),
       env: cafe24Env
     })).toBe(true);
@@ -111,6 +116,18 @@ describe("Cafe24 upload-code integration helpers", () => {
     expect(getCafe24WebhookAuthFailureReason({ headers, env: cafe24Env })).toBe("auth_mismatch");
     expect(getCafe24WebhookAuthFailureReason({ headers: new Headers(), env: cafe24Env })).toBe("auth_header_missing_or_unsupported");
     expect(getCafe24WebhookAuthFailureReason({ headers, env: { ...cafe24Env, CAFE24_WEBHOOK_SECRET: "" } })).toBe("secret_missing");
+  });
+
+  it("reports x-api-key as a direct token webhook auth header without exposing values", () => {
+    const headers = new Headers({ "x-api-key": "wrong" });
+    const inspection = inspectCafe24WebhookAuthHeaders(headers);
+
+    expect(inspection.directTokenHeaderNames).toEqual(["x-api-key"]);
+    expect(inspection.signatureHeaderNames).toEqual([]);
+    expect(inspection.unsupportedCafe24HeaderNames).toEqual([]);
+    expect(inspection.receivedHeaderNames).toContain("x-api-key");
+    expect(JSON.stringify(inspection)).not.toContain("wrong");
+    expect(getCafe24WebhookAuthFailureReason({ headers, env: cafe24Env })).toBe("auth_mismatch");
   });
 
   it("redacts sensitive payload fields before storage", () => {
