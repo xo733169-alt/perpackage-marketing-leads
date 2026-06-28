@@ -72,11 +72,37 @@ export type Cafe24OrderSummary = {
   orderNo: string | null;
   buyerName: string | null;
   productName: string | null;
+  paymentStatusSource: string | null;
   paymentStatus: string | null;
   orderedAt: string | null;
+  shippingStatusSource: string | null;
   shippingStatus: string | null;
   totalPaidAmount: string | null;
   uploadCode: string | null;
+  responseShape: Cafe24OrderResponseShape;
+  matchedProject: Cafe24OrderProjectMatch | null;
+};
+
+export type Cafe24OrderResponseShape = {
+  topLevelKeys: string[];
+  hasOrderObject: boolean;
+  hasOrdersArray: boolean;
+  hasItems: boolean;
+  hasOrderItems: boolean;
+  hasProducts: boolean;
+  paymentKeys: string[];
+  shippingKeys: string[];
+  memoKeys: string[];
+  adminMemoKeys: string[];
+  customerMemoKeys: string[];
+};
+
+export type Cafe24OrderProjectMatch = {
+  projectId: string;
+  uploadCode: string | null;
+  companyName: string | null;
+  customerName: string | null;
+  matchType: "upload_code" | "order_id" | "order_no" | "order_number";
 };
 
 export type LinkCafe24OrderInput = {
@@ -405,6 +431,165 @@ function findStringByKeys(value: unknown, candidateKeys: string[], depth = 0): s
   return null;
 }
 
+function getStringValuesByKeys(value: unknown, candidateKeys: string[], depth = 0): string[] {
+  if (depth > 8 || value === null || value === undefined) return [];
+  const normalizedCandidates = new Set(candidateKeys.map(normalizeKey));
+  const values: string[] = [];
+
+  if (isRecord(value)) {
+    for (const [key, item] of Object.entries(value)) {
+      if (normalizedCandidates.has(normalizeKey(key))) {
+        if (typeof item === "string" && item.trim()) values.push(item.trim());
+        if (typeof item === "number" && Number.isFinite(item)) values.push(String(item));
+        if (typeof item === "boolean") values.push(item ? "true" : "false");
+      }
+    }
+
+    for (const item of Object.values(value)) {
+      values.push(...getStringValuesByKeys(item, candidateKeys, depth + 1));
+    }
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      values.push(...getStringValuesByKeys(item, candidateKeys, depth + 1));
+    }
+  }
+
+  return Array.from(new Set(values));
+}
+
+function collectMatchingKeys(value: unknown, candidateKeys: string[], depth = 0): string[] {
+  if (depth > 8 || value === null || value === undefined) return [];
+  const normalizedCandidates = new Set(candidateKeys.map(normalizeKey));
+  const keys: string[] = [];
+
+  if (isRecord(value)) {
+    for (const [key, item] of Object.entries(value)) {
+      if (normalizedCandidates.has(normalizeKey(key))) keys.push(key);
+      keys.push(...collectMatchingKeys(item, candidateKeys, depth + 1));
+    }
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      keys.push(...collectMatchingKeys(item, candidateKeys, depth + 1));
+    }
+  }
+
+  return Array.from(new Set(keys)).sort();
+}
+
+function hasNestedRecordKey(value: unknown, candidateKeys: string[], arrayOnly = false, depth = 0): boolean {
+  if (depth > 8 || value === null || value === undefined) return false;
+  const normalizedCandidates = new Set(candidateKeys.map(normalizeKey));
+
+  if (isRecord(value)) {
+    for (const [key, item] of Object.entries(value)) {
+      if (normalizedCandidates.has(normalizeKey(key))) {
+        if (arrayOnly ? Array.isArray(item) : isRecord(item)) return true;
+      }
+      if (hasNestedRecordKey(item, candidateKeys, arrayOnly, depth + 1)) return true;
+    }
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      if (hasNestedRecordKey(item, candidateKeys, arrayOnly, depth + 1)) return true;
+    }
+  }
+
+  return false;
+}
+
+const CAFE24_PRODUCT_NAME_KEYS = [
+  "product_name",
+  "productName",
+  "product_name_default",
+  "productNameDefault",
+  "item_name",
+  "itemName"
+];
+
+const CAFE24_PAYMENT_KEYS = [
+  "payment_status",
+  "paymentStatus",
+  "payment_state",
+  "paymentState",
+  "payment_status_text",
+  "paymentStatusText",
+  "paid",
+  "payed",
+  "payed_date",
+  "payedDate",
+  "payment_method",
+  "paymentMethod",
+  "bank_info",
+  "bankInfo",
+  "order_status",
+  "orderStatus"
+];
+
+const CAFE24_SHIPPING_KEYS = [
+  "shipping_status",
+  "shippingStatus",
+  "delivery_status",
+  "deliveryStatus",
+  "shipment_status",
+  "shipmentStatus",
+  "shipping_status_code",
+  "shippingStatusCode"
+];
+
+const CAFE24_MEMO_KEYS = [
+  "order_memo",
+  "orderMemo",
+  "memo",
+  "additional_info",
+  "additionalInfo",
+  "client_memo",
+  "clientMemo"
+];
+
+const CAFE24_ADMIN_MEMO_KEYS = ["admin_memo", "adminMemo", "admin_order_memo", "adminOrderMemo"];
+const CAFE24_CUSTOMER_MEMO_KEYS = ["customer_memo", "customerMemo", "buyer_memo", "buyerMemo"];
+
+const CAFE24_SHIPPING_STATUS_LABELS: Record<string, string> = {
+  F: "배송전",
+  M: "배송중",
+  T: "배송대기",
+  W: "배송준비중",
+  D: "배송완료",
+  C: "배송취소",
+  R: "반품",
+  E: "교환"
+};
+
+function formatMappedStatus(value: string | null, labels: Record<string, string>): string | null {
+  if (!value) return null;
+  const text = value.trim();
+  if (!text) return null;
+  const label = labels[text.toUpperCase()];
+  if (label) return `${text} / ${label}`;
+  return /^[A-Z]$/i.test(text) ? `${text} / 미매핑` : text;
+}
+
+export function analyzeCafe24OrderResponseShape(detail: unknown): Cafe24OrderResponseShape {
+  return {
+    topLevelKeys: isRecord(detail) ? Object.keys(detail).sort() : [],
+    hasOrderObject: hasNestedRecordKey(detail, ["order"]),
+    hasOrdersArray: hasNestedRecordKey(detail, ["orders"], true),
+    hasItems: hasNestedRecordKey(detail, ["items"], true),
+    hasOrderItems: hasNestedRecordKey(detail, ["order_items", "orderItems"], true),
+    hasProducts: hasNestedRecordKey(detail, ["products"], true),
+    paymentKeys: collectMatchingKeys(detail, CAFE24_PAYMENT_KEYS),
+    shippingKeys: collectMatchingKeys(detail, CAFE24_SHIPPING_KEYS),
+    memoKeys: collectMatchingKeys(detail, CAFE24_MEMO_KEYS),
+    adminMemoKeys: collectMatchingKeys(detail, CAFE24_ADMIN_MEMO_KEYS),
+    customerMemoKeys: collectMatchingKeys(detail, CAFE24_CUSTOMER_MEMO_KEYS)
+  };
+}
+
 function findUploadCodeInUnknown(value: unknown, depth = 0): string | null {
   if (depth > 8 || value === null || value === undefined) return null;
 
@@ -431,15 +616,9 @@ function findUploadCodeInUnknown(value: unknown, depth = 0): string | null {
 
 export function extractCafe24OrderInfo(payload: unknown, fallbackMallId?: string | null): Cafe24OrderInfo {
   const orderMemo = findStringByKeys(payload, [
-    "order_memo",
-    "orderMemo",
-    "memo",
-    "customer_memo",
-    "customerMemo",
-    "client_memo",
-    "clientMemo",
-    "additional_info",
-    "additionalInfo"
+    ...CAFE24_MEMO_KEYS,
+    ...CAFE24_ADMIN_MEMO_KEYS,
+    ...CAFE24_CUSTOMER_MEMO_KEYS
   ]);
 
   return {
@@ -472,7 +651,11 @@ export function isCafe24TestWebhookPayload(payload: unknown): boolean {
   return Boolean(orderId?.startsWith("Tb") && appName?.toLowerCase() === "app_name");
 }
 
-export function extractCafe24OrderSummary(detail: unknown, fallbackMallId?: string | null): Cafe24OrderSummary {
+export function extractCafe24OrderSummary(
+  detail: unknown,
+  fallbackMallId?: string | null,
+  matchedProject: Cafe24OrderProjectMatch | null = null
+): Cafe24OrderSummary {
   const orderInfo = extractCafe24OrderInfo(detail, fallbackMallId);
   const buyerName = findStringByKeys(detail, [
     "buyer_name",
@@ -486,24 +669,8 @@ export function extractCafe24OrderSummary(detail: unknown, fallbackMallId?: stri
     "customer_name",
     "customerName"
   ]);
-  const productName = findStringByKeys(detail, [
-    "product_name",
-    "productName",
-    "item_name",
-    "itemName",
-    "productNameDefault",
-    "product_name_default"
-  ]);
-  const paymentStatus = findStringByKeys(detail, [
-    "payment_status",
-    "paymentStatus",
-    "payment_state",
-    "paymentState",
-    "payment_status_text",
-    "paymentStatusText",
-    "order_status",
-    "orderStatus"
-  ]);
+  const productNames = getStringValuesByKeys(detail, CAFE24_PRODUCT_NAME_KEYS);
+  const paymentStatusRaw = findStringByKeys(detail, CAFE24_PAYMENT_KEYS);
   const orderedAt = findStringByKeys(detail, [
     "ordered_date",
     "orderedDate",
@@ -514,14 +681,7 @@ export function extractCafe24OrderSummary(detail: unknown, fallbackMallId?: stri
     "payed_date",
     "payedDate"
   ]);
-  const shippingStatus = findStringByKeys(detail, [
-    "shipping_status",
-    "shippingStatus",
-    "delivery_status",
-    "deliveryStatus",
-    "shipment_status",
-    "shipmentStatus"
-  ]);
+  const shippingStatusRaw = findStringByKeys(detail, CAFE24_SHIPPING_KEYS);
   const totalPaidAmount = findStringByKeys(detail, [
     "total_paid_amount",
     "totalPaidAmount",
@@ -540,12 +700,16 @@ export function extractCafe24OrderSummary(detail: unknown, fallbackMallId?: stri
     orderId: orderInfo.orderId ?? null,
     orderNo: orderInfo.orderNo ?? orderInfo.orderId ?? null,
     buyerName,
-    productName,
-    paymentStatus,
+    productName: productNames.length ? productNames.join(", ") : null,
+    paymentStatusSource: paymentStatusRaw,
+    paymentStatus: paymentStatusRaw,
     orderedAt,
-    shippingStatus,
+    shippingStatusSource: shippingStatusRaw,
+    shippingStatus: formatMappedStatus(shippingStatusRaw, CAFE24_SHIPPING_STATUS_LABELS),
     totalPaidAmount,
-    uploadCode: orderInfo.uploadCode ?? null
+    uploadCode: orderInfo.uploadCode ?? null,
+    responseShape: analyzeCafe24OrderResponseShape(detail),
+    matchedProject
   };
 }
 
@@ -851,27 +1015,140 @@ async function updateWebhookEventStatus({
   });
 }
 
-export async function linkCafe24OrderToUploadProject(input: LinkCafe24OrderInput): Promise<LinkCafe24OrderResult> {
+type UploadProjectLinkCandidate = {
+  id: string;
+  uploadCode: string | null;
+  companyName: string | null;
+  customerName: string | null;
+  cafe24OrderNumber: string;
+  cafe24OrderId: string | null;
+  cafe24OrderNo: string | null;
+  linkedAt: Date | null;
+};
+
+function uniqueOrderIdentifiers(input: LinkCafe24OrderInput): string[] {
+  return Array.from(new Set([
+    input.orderId?.trim(),
+    input.orderNo?.trim()
+  ].filter((value): value is string => Boolean(value))));
+}
+
+function toCafe24OrderProjectMatch(
+  project: UploadProjectLinkCandidate,
+  input: LinkCafe24OrderInput,
+  preferredMatchType?: Cafe24OrderProjectMatch["matchType"]
+): Cafe24OrderProjectMatch {
+  const orderIdentifiers = uniqueOrderIdentifiers(input);
+  const matchType = preferredMatchType ??
+    (project.cafe24OrderId && orderIdentifiers.includes(project.cafe24OrderId) ? "order_id" :
+      project.cafe24OrderNo && orderIdentifiers.includes(project.cafe24OrderNo) ? "order_no" :
+        "order_number");
+
+  return {
+    projectId: project.id,
+    uploadCode: project.uploadCode,
+    companyName: project.companyName,
+    customerName: project.customerName,
+    matchType
+  };
+}
+
+export async function findCafe24OrderMatchedProject(input: LinkCafe24OrderInput): Promise<Cafe24OrderProjectMatch | null> {
   const uploadCode = input.uploadCode ? normalizeUploadCode(input.uploadCode) : null;
 
-  if (!uploadCode) {
-    const message = "Webhook/order payload did not include an upload code.";
-    await updateWebhookEventStatus({ webhookEventId: input.webhookEventId, status: "SKIPPED", message });
-    return { status: "SKIPPED", message };
+  if (uploadCode) {
+    const project = await prisma.uploadProject.findUnique({
+      where: { uploadCode },
+      select: {
+        id: true,
+        uploadCode: true,
+        companyName: true,
+        customerName: true,
+        cafe24OrderNumber: true,
+        cafe24OrderId: true,
+        cafe24OrderNo: true,
+        linkedAt: true
+      }
+    });
+
+    if (project) return toCafe24OrderProjectMatch(project, input, "upload_code");
   }
 
-  const project = await prisma.uploadProject.findUnique({
-    where: { uploadCode },
+  const orderIdentifiers = uniqueOrderIdentifiers(input);
+  if (!orderIdentifiers.length) return null;
+
+  const project = await prisma.uploadProject.findFirst({
+    where: {
+      OR: [
+        { cafe24OrderId: { in: orderIdentifiers } },
+        { cafe24OrderNo: { in: orderIdentifiers } },
+        { cafe24OrderNumber: { in: orderIdentifiers } }
+      ]
+    },
+    orderBy: { createdAt: "desc" },
     select: {
       id: true,
+      uploadCode: true,
+      companyName: true,
+      customerName: true,
+      cafe24OrderNumber: true,
       cafe24OrderId: true,
       cafe24OrderNo: true,
       linkedAt: true
     }
   });
 
+  return project ? toCafe24OrderProjectMatch(project, input) : null;
+}
+
+export async function linkCafe24OrderToUploadProject(input: LinkCafe24OrderInput): Promise<LinkCafe24OrderResult> {
+  const uploadCode = input.uploadCode ? normalizeUploadCode(input.uploadCode) : null;
+
+  const uploadCodeProject = uploadCode
+    ? await prisma.uploadProject.findUnique({
+      where: { uploadCode },
+      select: {
+        id: true,
+        uploadCode: true,
+        companyName: true,
+        customerName: true,
+        cafe24OrderNumber: true,
+        cafe24OrderId: true,
+        cafe24OrderNo: true,
+        linkedAt: true
+      }
+    })
+    : null;
+  const project = uploadCodeProject ?? await (async () => {
+    const orderIdentifiers = uniqueOrderIdentifiers(input);
+    if (!orderIdentifiers.length) return null;
+
+    return prisma.uploadProject.findFirst({
+      where: {
+        OR: [
+          { cafe24OrderId: { in: orderIdentifiers } },
+          { cafe24OrderNo: { in: orderIdentifiers } },
+          { cafe24OrderNumber: { in: orderIdentifiers } }
+        ]
+      },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        uploadCode: true,
+        companyName: true,
+        customerName: true,
+        cafe24OrderNumber: true,
+        cafe24OrderId: true,
+        cafe24OrderNo: true,
+        linkedAt: true
+      }
+    });
+  })();
+
   if (!project) {
-    const message = `Upload project was not found for ${uploadCode}.`;
+    const message = uploadCode
+      ? `Upload project was not found for ${uploadCode}.`
+      : "같은 주문번호를 가진 업로드 프로젝트가 없습니다.";
     await updateWebhookEventStatus({ webhookEventId: input.webhookEventId, status: "SKIPPED", message });
     return { status: "SKIPPED", message };
   }
@@ -889,8 +1166,8 @@ export async function linkCafe24OrderToUploadProject(input: LinkCafe24OrderInput
       where: { id: project.id },
       data: {
         cafe24MallId: input.mallId?.trim() || null,
-        cafe24OrderId: input.orderId?.trim() || null,
-        cafe24OrderNo: input.orderNo?.trim() || input.orderId?.trim() || null,
+        cafe24OrderId: input.orderId?.trim() || project.cafe24OrderId,
+        cafe24OrderNo: input.orderNo?.trim() || input.orderId?.trim() || project.cafe24OrderNo,
         cafe24MemberId: input.memberId?.trim() || null,
         cafe24OrderMemo: input.orderMemo?.trim() || null,
         linkedAt: project.linkedAt ?? now,

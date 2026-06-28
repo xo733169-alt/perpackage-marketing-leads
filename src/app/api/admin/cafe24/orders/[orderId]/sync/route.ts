@@ -5,6 +5,7 @@ import {
   extractCafe24OrderInfo,
   extractCafe24OrderSummary,
   fetchCafe24OrderDetail,
+  findCafe24OrderMatchedProject,
   linkCafe24OrderToUploadProject
 } from "@/lib/cafe24";
 import { prisma } from "@/lib/prisma";
@@ -30,8 +31,7 @@ export async function POST(request: Request, { params }: { params: { orderId: st
       mallId: tokenLookupMallId
     });
     const orderInfo = extractCafe24OrderInfo(detail, tokenLookupMallId);
-    const orderSummary = extractCafe24OrderSummary(detail, tokenLookupMallId);
-    const result = await linkCafe24OrderToUploadProject({
+    const matchInput = {
       uploadCode: orderInfo.uploadCode,
       mallId: orderInfo.mallId ?? tokenLookupMallId,
       orderId: orderInfo.orderId ?? orderId,
@@ -39,7 +39,10 @@ export async function POST(request: Request, { params }: { params: { orderId: st
       memberId: orderInfo.memberId,
       orderMemo: orderInfo.orderMemo,
       source: CAFE24_LINK_SOURCE_API
-    });
+    };
+    const matchedProject = await findCafe24OrderMatchedProject(matchInput);
+    const orderSummary = extractCafe24OrderSummary(detail, tokenLookupMallId, matchedProject);
+    const result = await linkCafe24OrderToUploadProject(matchInput);
     const linkedProject = result.projectId
       ? await prisma.uploadProject.findUnique({
         where: { id: result.projectId },
@@ -50,7 +53,14 @@ export async function POST(request: Request, { params }: { params: { orderId: st
           customerName: true
         }
       })
-      : null;
+      : matchedProject
+        ? {
+          id: matchedProject.projectId,
+          uploadCode: matchedProject.uploadCode,
+          companyName: matchedProject.companyName,
+          customerName: matchedProject.customerName
+        }
+        : null;
 
     return NextResponse.json({
       ok: true,

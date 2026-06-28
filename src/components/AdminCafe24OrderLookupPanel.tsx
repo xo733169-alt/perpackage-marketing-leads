@@ -2,17 +2,18 @@
 
 import { useMemo, useState } from "react";
 
-type LookupOrder = {
-  orderId?: string | null;
-  orderNo?: string | null;
-  buyerName?: string | null;
-  productName?: string | null;
-  paymentStatus?: string | null;
-  orderedAt?: string | null;
-  shippingStatus?: string | null;
-  totalPaidAmount?: string | null;
-  uploadCode?: string | null;
-  hasUploadCode?: boolean;
+type LookupResponseShape = {
+  topLevelKeys: string[];
+  hasOrderObject: boolean;
+  hasOrdersArray: boolean;
+  hasItems: boolean;
+  hasOrderItems: boolean;
+  hasProducts: boolean;
+  paymentKeys: string[];
+  shippingKeys: string[];
+  memoKeys: string[];
+  adminMemoKeys: string[];
+  customerMemoKeys: string[];
 };
 
 type LookupProject = {
@@ -20,6 +21,24 @@ type LookupProject = {
   uploadCode: string | null;
   companyName: string | null;
   customerName: string | null;
+  matchType?: string | null;
+};
+
+type LookupOrder = {
+  orderId?: string | null;
+  orderNo?: string | null;
+  buyerName?: string | null;
+  productName?: string | null;
+  paymentStatusSource?: string | null;
+  paymentStatus?: string | null;
+  orderedAt?: string | null;
+  shippingStatusSource?: string | null;
+  shippingStatus?: string | null;
+  totalPaidAmount?: string | null;
+  uploadCode?: string | null;
+  hasUploadCode?: boolean;
+  responseShape?: LookupResponseShape;
+  matchedProject?: LookupProject | null;
 };
 
 type LookupResult = {
@@ -44,6 +63,10 @@ function display(value: string | number | boolean | null | undefined) {
   return text || "-";
 }
 
+function joinList(values: string[] | null | undefined) {
+  return values?.length ? values.join(", ") : "-";
+}
+
 function ResultRow({ label, value }: { label: string; value: string | number | boolean | null | undefined }) {
   return (
     <div className="rounded-md border border-line bg-ivory px-3 py-2">
@@ -60,11 +83,12 @@ export function AdminCafe24OrderLookupPanel({ mallId }: { mallId: string | null 
   const [error, setError] = useState<string | null>(null);
 
   const trimmedOrderId = orderId.trim();
+  const project = response?.linkedProject ?? response?.order?.matchedProject ?? null;
   const projectLabel = useMemo(() => {
-    const project = response?.linkedProject;
     if (!project) return "-";
     return project.uploadCode ?? project.companyName ?? project.customerName ?? project.id;
-  }, [response]);
+  }, [project]);
+  const responseShape = response?.order?.responseShape;
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -162,17 +186,39 @@ export function AdminCafe24OrderLookupPanel({ mallId }: { mallId: string | null 
             <ResultRow label="주문자명" value={response.order.buyerName} />
             <ResultRow label="상품명" value={response.order.productName} />
             <ResultRow label="결제상태" value={response.order.paymentStatus} />
+            <ResultRow label="결제상태 원본 후보" value={response.order.paymentStatusSource} />
             <ResultRow label="주문일" value={response.order.orderedAt} />
             <ResultRow label="배송상태" value={response.order.shippingStatus} />
+            <ResultRow label="배송상태 원본 코드" value={response.order.shippingStatusSource} />
             <ResultRow label="총 결제금액" value={response.order.totalPaidAmount} />
             <ResultRow label="업로드 접수번호 추출 여부" value={response.order.hasUploadCode ?? false} />
             <ResultRow label="업로드 접수번호" value={response.order.uploadCode} />
-            <ResultRow label="연결 프로젝트 여부" value={Boolean(response.linkedProject)} />
+            <ResultRow label="연결 프로젝트 여부" value={Boolean(project)} />
             <ResultRow label="연결 프로젝트" value={projectLabel} />
+            <ResultRow label="연결 기준" value={project?.matchType} />
             <ResultRow label="tokenLookupMallId" value={response.tokenLookupMallId} />
             <ResultRow label="연결 처리 결과" value={response.result?.status} />
             <ResultRow label="연결 메시지" value={response.result?.message} />
           </dl>
+
+          {responseShape ? (
+            <div className="mt-4 rounded-md border border-emerald-100 bg-white p-3">
+              <div className="text-xs font-black uppercase tracking-wide text-neutral-500">응답 구조 요약</div>
+              <dl className="mt-3 grid gap-2 md:grid-cols-3">
+                <ResultRow label="topLevelKeys" value={joinList(responseShape.topLevelKeys)} />
+                <ResultRow label="order 객체" value={responseShape.hasOrderObject} />
+                <ResultRow label="orders 배열" value={responseShape.hasOrdersArray} />
+                <ResultRow label="items 배열" value={responseShape.hasItems} />
+                <ResultRow label="order_items 배열" value={responseShape.hasOrderItems} />
+                <ResultRow label="products 배열" value={responseShape.hasProducts} />
+                <ResultRow label="payment 관련 key" value={joinList(responseShape.paymentKeys)} />
+                <ResultRow label="shipping 관련 key" value={joinList(responseShape.shippingKeys)} />
+                <ResultRow label="memo 관련 key" value={joinList(responseShape.memoKeys)} />
+                <ResultRow label="admin memo key" value={joinList(responseShape.adminMemoKeys)} />
+                <ResultRow label="customer memo key" value={joinList(responseShape.customerMemoKeys)} />
+              </dl>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </section>

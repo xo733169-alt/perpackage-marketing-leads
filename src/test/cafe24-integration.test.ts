@@ -42,7 +42,7 @@ describe("Cafe24 upload-code integration helpers", () => {
         order_id: "20260626-0001",
         order_no: "20260626-0001",
         member_id: "member-1",
-        order_memo: "파일 접수번호 PP-UP-20260626-001 입니다."
+        order_memo: "upload receipt PP-UP-20260626-001"
       }
     }, "peerl");
 
@@ -103,24 +103,46 @@ describe("Cafe24 upload-code integration helpers", () => {
       order: {
         order_id: "20260627-0000032",
         order_no: "20260627-0000032",
-        buyer_name: "홍길동",
+        buyer_name: "Test buyer",
         ordered_date: "2026-06-27 10:00:00",
         payment_status: "paid",
-        shipping_status: "standby",
+        shipping_status: "F",
         total_paid_amount: "12000",
-        products: [{ product_name: "단상자" }],
-        order_memo: "접수번호 PP-UP-20260627-001"
+        products: [
+          { product_name: "Design service" },
+          { product_name_default: "Y box" }
+        ],
+        order_items: [
+          { product_name: "Design service" }
+        ],
+        order_memo: "upload receipt PP-UP-20260627-001"
       }
-    }, "peerl");
+    }, "peerl", {
+      projectId: "project-1",
+      uploadCode: "PP-UP-20260627-001",
+      companyName: "Peerpackage",
+      customerName: "Test buyer",
+      matchType: "upload_code"
+    });
 
     expect(summary.orderId).toBe("20260627-0000032");
     expect(summary.orderNo).toBe("20260627-0000032");
-    expect(summary.buyerName).toBe("홍길동");
-    expect(summary.productName).toBe("단상자");
+    expect(summary.buyerName).toBe("Test buyer");
+    expect(summary.productName).toBe("Design service, Y box");
     expect(summary.paymentStatus).toBe("paid");
-    expect(summary.shippingStatus).toBe("standby");
+    expect(summary.paymentStatusSource).toBe("paid");
+    expect(summary.shippingStatusSource).toBe("F");
+    expect(summary.shippingStatus).toBe("F / 배송전");
     expect(summary.totalPaidAmount).toBe("12000");
     expect(summary.uploadCode).toBe("PP-UP-20260627-001");
+    expect(summary.matchedProject?.matchType).toBe("upload_code");
+    expect(summary.responseShape.topLevelKeys).toEqual(["order"]);
+    expect(summary.responseShape.hasOrderObject).toBe(true);
+    expect(summary.responseShape.hasProducts).toBe(true);
+    expect(summary.responseShape.hasOrderItems).toBe(true);
+    expect(summary.responseShape.paymentKeys).toContain("payment_status");
+    expect(summary.responseShape.shippingKeys).toContain("shipping_status");
+    expect(summary.responseShape.memoKeys).toContain("order_memo");
   });
 
   it("stores and reads safe webhook debug information without exposing secrets", () => {
