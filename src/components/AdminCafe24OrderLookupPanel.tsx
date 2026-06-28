@@ -9,6 +9,7 @@ type LookupResponseShape = {
   hasItems: boolean;
   hasOrderItems: boolean;
   hasProducts: boolean;
+  firstItemKeys: string[];
   paymentKeys: string[];
   shippingKeys: string[];
   memoKeys: string[];
@@ -209,6 +210,7 @@ export function AdminCafe24OrderLookupPanel({ mallId }: { mallId: string | null 
                 <ResultRow label="order 객체" value={responseShape.hasOrderObject} />
                 <ResultRow label="orders 배열" value={responseShape.hasOrdersArray} />
                 <ResultRow label="items 배열" value={responseShape.hasItems} />
+                <ResultRow label="첫 번째 item key" value={joinList(responseShape.firstItemKeys)} />
                 <ResultRow label="order_items 배열" value={responseShape.hasOrderItems} />
                 <ResultRow label="products 배열" value={responseShape.hasProducts} />
                 <ResultRow label="payment 관련 key" value={joinList(responseShape.paymentKeys)} />

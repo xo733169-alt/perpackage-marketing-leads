@@ -90,6 +90,7 @@ export type Cafe24OrderResponseShape = {
   hasItems: boolean;
   hasOrderItems: boolean;
   hasProducts: boolean;
+  firstItemKeys: string[];
   paymentKeys: string[];
   shippingKeys: string[];
   memoKeys: string[];
@@ -508,7 +509,35 @@ const CAFE24_PRODUCT_NAME_KEYS = [
   "product_name_default",
   "productNameDefault",
   "item_name",
-  "itemName"
+  "itemName",
+  "product_name_en",
+  "productNameEn",
+  "product_no",
+  "productNo",
+  "variant_code",
+  "variantCode",
+  "option_value",
+  "optionValue"
+];
+
+const CAFE24_PRIMARY_PRODUCT_NAME_KEYS = [
+  "product_name",
+  "productName",
+  "product_name_default",
+  "productNameDefault",
+  "item_name",
+  "itemName",
+  "product_name_en",
+  "productNameEn"
+];
+
+const CAFE24_PRODUCT_FALLBACK_KEYS = [
+  "product_no",
+  "productNo",
+  "variant_code",
+  "variantCode",
+  "option_value",
+  "optionValue"
 ];
 
 const CAFE24_PAYMENT_KEYS = [
@@ -574,6 +603,63 @@ function formatMappedStatus(value: string | null, labels: Record<string, string>
   return /^[A-Z]$/i.test(text) ? `${text} / 미매핑` : text;
 }
 
+function findArraysByKeys(value: unknown, candidateKeys: string[], depth = 0): unknown[][] {
+  if (depth > 8 || value === null || value === undefined) return [];
+  const normalizedCandidates = new Set(candidateKeys.map(normalizeKey));
+  const arrays: unknown[][] = [];
+
+  if (isRecord(value)) {
+    for (const [key, item] of Object.entries(value)) {
+      if (normalizedCandidates.has(normalizeKey(key)) && Array.isArray(item)) {
+        arrays.push(item);
+      }
+      arrays.push(...findArraysByKeys(item, candidateKeys, depth + 1));
+    }
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      arrays.push(...findArraysByKeys(item, candidateKeys, depth + 1));
+    }
+  }
+
+  return arrays;
+}
+
+function firstRecordKeysFromArrayKey(value: unknown, candidateKeys: string[]): string[] {
+  for (const array of findArraysByKeys(value, candidateKeys)) {
+    const firstRecord = array.find(isRecord);
+    if (firstRecord) {
+      return Object.keys(firstRecord).filter((key) => !isSensitiveKey(key)).sort();
+    }
+  }
+
+  return [];
+}
+
+function collectCafe24ProductNames(detail: unknown): string[] {
+  const names: string[] = [];
+  const itemArrays = findArraysByKeys(detail, ["items", "order_items", "orderItems", "products"]);
+
+  for (const itemArray of itemArrays) {
+    for (const item of itemArray) {
+      const primary = findStringByKeys(item, CAFE24_PRIMARY_PRODUCT_NAME_KEYS);
+      if (primary) {
+        names.push(primary);
+        continue;
+      }
+
+      const fallbackValues = getStringValuesByKeys(item, CAFE24_PRODUCT_FALLBACK_KEYS);
+      if (fallbackValues.length) {
+        names.push(fallbackValues.join(" / "));
+      }
+    }
+  }
+
+  if (names.length) return Array.from(new Set(names));
+  return getStringValuesByKeys(detail, CAFE24_PRODUCT_NAME_KEYS);
+}
+
 export function analyzeCafe24OrderResponseShape(detail: unknown): Cafe24OrderResponseShape {
   return {
     topLevelKeys: isRecord(detail) ? Object.keys(detail).sort() : [],
@@ -582,6 +668,7 @@ export function analyzeCafe24OrderResponseShape(detail: unknown): Cafe24OrderRes
     hasItems: hasNestedRecordKey(detail, ["items"], true),
     hasOrderItems: hasNestedRecordKey(detail, ["order_items", "orderItems"], true),
     hasProducts: hasNestedRecordKey(detail, ["products"], true),
+    firstItemKeys: firstRecordKeysFromArrayKey(detail, ["items"]),
     paymentKeys: collectMatchingKeys(detail, CAFE24_PAYMENT_KEYS),
     shippingKeys: collectMatchingKeys(detail, CAFE24_SHIPPING_KEYS),
     memoKeys: collectMatchingKeys(detail, CAFE24_MEMO_KEYS),
@@ -669,7 +756,7 @@ export function extractCafe24OrderSummary(
     "customer_name",
     "customerName"
   ]);
-  const productNames = getStringValuesByKeys(detail, CAFE24_PRODUCT_NAME_KEYS);
+  const productNames = collectCafe24ProductNames(detail);
   const paymentStatusRaw = findStringByKeys(detail, CAFE24_PAYMENT_KEYS);
   const orderedAt = findStringByKeys(detail, [
     "ordered_date",

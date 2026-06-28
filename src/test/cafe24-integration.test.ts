@@ -108,12 +108,14 @@ describe("Cafe24 upload-code integration helpers", () => {
         payment_status: "paid",
         shipping_status: "F",
         total_paid_amount: "12000",
-        products: [
-          { product_name: "Design service" },
+        items: [
+          {
+            product_name_en: "Design service",
+            product_no: 1001,
+            variant_code: "P0000AAA000A",
+            option_value: "matte"
+          },
           { product_name_default: "Y box" }
-        ],
-        order_items: [
-          { product_name: "Design service" }
         ],
         order_memo: "upload receipt PP-UP-20260627-001"
       }
@@ -138,8 +140,10 @@ describe("Cafe24 upload-code integration helpers", () => {
     expect(summary.matchedProject?.matchType).toBe("upload_code");
     expect(summary.responseShape.topLevelKeys).toEqual(["order"]);
     expect(summary.responseShape.hasOrderObject).toBe(true);
-    expect(summary.responseShape.hasProducts).toBe(true);
-    expect(summary.responseShape.hasOrderItems).toBe(true);
+    expect(summary.responseShape.hasItems).toBe(true);
+    expect(summary.responseShape.hasProducts).toBe(false);
+    expect(summary.responseShape.hasOrderItems).toBe(false);
+    expect(summary.responseShape.firstItemKeys).toEqual(["option_value", "product_name_en", "product_no", "variant_code"]);
     expect(summary.responseShape.paymentKeys).toContain("payment_status");
     expect(summary.responseShape.shippingKeys).toContain("shipping_status");
     expect(summary.responseShape.memoKeys).toContain("order_memo");
