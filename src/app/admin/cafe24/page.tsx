@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { AdminCafe24OrderLookupPanel } from "@/components/AdminCafe24OrderLookupPanel";
 import { AdminNav } from "@/components/AdminNav";
 import { formatDateTime, formatOptionalText } from "@/lib/admin-uploads";
 import { isAdminAuthenticated } from "@/lib/auth";
@@ -132,6 +133,8 @@ export default async function AdminCafe24Page({
             )}
           </section>
         </div>
+
+        <AdminCafe24OrderLookupPanel mallId={fallbackMallId} />
 
         <section className="mt-6 rounded-lg border border-line bg-white p-5">
           <h2 className="text-lg font-bold text-ink">최근 Webhook 수신 로그</h2>

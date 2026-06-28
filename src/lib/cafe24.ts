@@ -67,6 +67,18 @@ export type Cafe24OrderInfo = {
   uploadCode?: string | null;
 };
 
+export type Cafe24OrderSummary = {
+  orderId: string | null;
+  orderNo: string | null;
+  buyerName: string | null;
+  productName: string | null;
+  paymentStatus: string | null;
+  orderedAt: string | null;
+  shippingStatus: string | null;
+  totalPaidAmount: string | null;
+  uploadCode: string | null;
+};
+
 export type LinkCafe24OrderInput = {
   uploadCode?: string | null;
   mallId?: string | null;
@@ -447,8 +459,94 @@ export function isCafe24TestWebhookPayload(payload: unknown): boolean {
   if (clientId?.toLowerCase().startsWith("sample")) return true;
 
   const orderId = findStringByKeys(payload, ["order_id", "orderId"]);
+  const orderNo = findStringByKeys(payload, ["order_no", "orderNo", "order_number", "orderNumber"]);
+  const mallId = findStringByKeys(payload, ["mall_id", "mallId", "mall"]);
+  const eventType = findStringByKeys(payload, ["event_type", "eventType", "event_name", "eventName", "event", "event_no", "eventNo"]);
   const appName = findStringByKeys(payload, ["app_name", "appName"]);
+  const sampleOrderId = orderId ?? orderNo;
+
+  if (mallId === "cafe24bestshop" && sampleOrderId === "20200717-0029236" && (eventType === "90023" || eventType === "90025")) {
+    return true;
+  }
+
   return Boolean(orderId?.startsWith("Tb") && appName?.toLowerCase() === "app_name");
+}
+
+export function extractCafe24OrderSummary(detail: unknown, fallbackMallId?: string | null): Cafe24OrderSummary {
+  const orderInfo = extractCafe24OrderInfo(detail, fallbackMallId);
+  const buyerName = findStringByKeys(detail, [
+    "buyer_name",
+    "buyerName",
+    "orderer_name",
+    "ordererName",
+    "billing_name",
+    "billingName",
+    "member_name",
+    "memberName",
+    "customer_name",
+    "customerName"
+  ]);
+  const productName = findStringByKeys(detail, [
+    "product_name",
+    "productName",
+    "item_name",
+    "itemName",
+    "productNameDefault",
+    "product_name_default"
+  ]);
+  const paymentStatus = findStringByKeys(detail, [
+    "payment_status",
+    "paymentStatus",
+    "payment_state",
+    "paymentState",
+    "payment_status_text",
+    "paymentStatusText",
+    "order_status",
+    "orderStatus"
+  ]);
+  const orderedAt = findStringByKeys(detail, [
+    "ordered_date",
+    "orderedDate",
+    "order_date",
+    "orderDate",
+    "created_date",
+    "createdDate",
+    "payed_date",
+    "payedDate"
+  ]);
+  const shippingStatus = findStringByKeys(detail, [
+    "shipping_status",
+    "shippingStatus",
+    "delivery_status",
+    "deliveryStatus",
+    "shipment_status",
+    "shipmentStatus"
+  ]);
+  const totalPaidAmount = findStringByKeys(detail, [
+    "total_paid_amount",
+    "totalPaidAmount",
+    "payment_amount",
+    "paymentAmount",
+    "paid_amount",
+    "paidAmount",
+    "actual_payment_amount",
+    "actualPaymentAmount",
+    "order_price_amount",
+    "orderPriceAmount",
+    "amount"
+  ]);
+
+  return {
+    orderId: orderInfo.orderId ?? null,
+    orderNo: orderInfo.orderNo ?? orderInfo.orderId ?? null,
+    buyerName,
+    productName,
+    paymentStatus,
+    orderedAt,
+    shippingStatus,
+    totalPaidAmount,
+    uploadCode: orderInfo.uploadCode ?? null
+  };
 }
 
 function isSensitiveKey(key: string): boolean {

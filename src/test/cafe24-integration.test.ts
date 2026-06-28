@@ -5,6 +5,7 @@ import {
   buildCafe24OAuthAuthorizeUrl,
   createCafe24OAuthState,
   extractCafe24OrderInfo,
+  extractCafe24OrderSummary,
   getCafe24WebhookAuthFailureReason,
   getCafe24ConfigStatus,
   getCafe24WebhookDebugInfo,
@@ -69,6 +70,57 @@ describe("Cafe24 upload-code integration helpers", () => {
     expect(info.orderNo).toBe("Tb1dbe01667974041111");
     expect(isCafe24TestWebhookPayload(payload)).toBe(true);
     expect(isCafe24TestWebhookPayload({ resource: { client_id: "real-client", order_id: "20260627-0001" } })).toBe(false);
+  });
+
+  it("skips Cafe24 90023 and 90025 sample webhook payloads from cafe24bestshop", () => {
+    const samplePayload = {
+      event_no: 90023,
+      resource: {
+        mall_id: "cafe24bestshop",
+        order_id: "20200717-0029236"
+      }
+    };
+
+    expect(isCafe24TestWebhookPayload(samplePayload)).toBe(true);
+    expect(isCafe24TestWebhookPayload({
+      event_no: 90025,
+      resource: {
+        mall_id: "cafe24bestshop",
+        order_no: "20200717-0029236"
+      }
+    })).toBe(true);
+    expect(isCafe24TestWebhookPayload({
+      event_no: 90023,
+      resource: {
+        mall_id: "peerl",
+        order_id: "20260627-0000032"
+      }
+    })).toBe(false);
+  });
+
+  it("extracts a safe Cafe24 manual order lookup summary", () => {
+    const summary = extractCafe24OrderSummary({
+      order: {
+        order_id: "20260627-0000032",
+        order_no: "20260627-0000032",
+        buyer_name: "홍길동",
+        ordered_date: "2026-06-27 10:00:00",
+        payment_status: "paid",
+        shipping_status: "standby",
+        total_paid_amount: "12000",
+        products: [{ product_name: "단상자" }],
+        order_memo: "접수번호 PP-UP-20260627-001"
+      }
+    }, "peerl");
+
+    expect(summary.orderId).toBe("20260627-0000032");
+    expect(summary.orderNo).toBe("20260627-0000032");
+    expect(summary.buyerName).toBe("홍길동");
+    expect(summary.productName).toBe("단상자");
+    expect(summary.paymentStatus).toBe("paid");
+    expect(summary.shippingStatus).toBe("standby");
+    expect(summary.totalPaidAmount).toBe("12000");
+    expect(summary.uploadCode).toBe("PP-UP-20260627-001");
   });
 
   it("stores and reads safe webhook debug information without exposing secrets", () => {

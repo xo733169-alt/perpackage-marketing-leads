@@ -3,9 +3,11 @@ import { isAdminAuthenticated, isAllowedMutationOrigin } from "@/lib/auth";
 import {
   CAFE24_LINK_SOURCE_API,
   extractCafe24OrderInfo,
+  extractCafe24OrderSummary,
   fetchCafe24OrderDetail,
   linkCafe24OrderToUploadProject
 } from "@/lib/cafe24";
+import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 
@@ -20,27 +22,58 @@ export async function POST(request: Request, { params }: { params: { orderId: st
 
   const body = await request.json().catch(() => ({})) as { mallId?: string };
   const orderId = decodeURIComponent(params.orderId);
+  const tokenLookupMallId = body.mallId?.trim() || process.env.CAFE24_MALL_ID?.trim() || null;
 
   try {
     const detail = await fetchCafe24OrderDetail({
       orderId,
-      mallId: body.mallId
+      mallId: tokenLookupMallId
     });
-    const orderInfo = extractCafe24OrderInfo(detail, body.mallId ?? process.env.CAFE24_MALL_ID ?? null);
+    const orderInfo = extractCafe24OrderInfo(detail, tokenLookupMallId);
+    const orderSummary = extractCafe24OrderSummary(detail, tokenLookupMallId);
     const result = await linkCafe24OrderToUploadProject({
       uploadCode: orderInfo.uploadCode,
-      mallId: orderInfo.mallId,
+      mallId: orderInfo.mallId ?? tokenLookupMallId,
       orderId: orderInfo.orderId ?? orderId,
       orderNo: orderInfo.orderNo,
       memberId: orderInfo.memberId,
       orderMemo: orderInfo.orderMemo,
       source: CAFE24_LINK_SOURCE_API
     });
+    const linkedProject = result.projectId
+      ? await prisma.uploadProject.findUnique({
+        where: { id: result.projectId },
+        select: {
+          id: true,
+          uploadCode: true,
+          companyName: true,
+          customerName: true
+        }
+      })
+      : null;
 
-    return NextResponse.json({ result });
+    return NextResponse.json({
+      ok: true,
+      tokenLookupMallId,
+      orderId,
+      order: {
+        ...orderSummary,
+        orderId: orderSummary.orderId ?? orderInfo.orderId ?? orderId,
+        orderNo: orderSummary.orderNo ?? orderInfo.orderNo ?? orderInfo.orderId ?? orderId,
+        uploadCode: orderSummary.uploadCode ?? orderInfo.uploadCode ?? null,
+        hasUploadCode: Boolean(orderSummary.uploadCode ?? orderInfo.uploadCode)
+      },
+      linkedProject,
+      result
+    });
   } catch (error) {
     return NextResponse.json(
-      { message: error instanceof Error ? error.message : "Cafe24 주문 동기화에 실패했습니다." },
+      {
+        ok: false,
+        message: error instanceof Error ? error.message : "Cafe24 주문 동기화에 실패했습니다.",
+        tokenLookupMallId,
+        orderId
+      },
       { status: 400 }
     );
   }
