@@ -30,8 +30,8 @@ export default function UploadPage() {
                 고객 정보 기준 인쇄파일 업로드
               </h1>
               <p className="mt-5 text-base leading-8 text-neutral-700">
-                업체명 또는 고객명, 담당자명, 연락처와 함께 인쇄파일을 접수해주세요. 주문번호가 있는 경우 함께
-                남기면 담당자가 더 빠르게 확인할 수 있습니다.
+                고객명/주문자명과 연락처를 기준으로 인쇄파일을 접수해주세요. 주문번호가 있는 경우 함께 남기면 담당자가
+                더 빠르게 확인할 수 있습니다.
               </p>
             </div>
 
@@ -48,7 +48,7 @@ export default function UploadPage() {
             <div className="rounded-lg border border-line bg-ivory p-5 text-sm leading-7 text-charcoal">
               <h2 className="text-base font-bold text-ink">고객 정보 기준 관리</h2>
               <p className="mt-3">
-                주문번호가 없어도 파일 접수는 가능합니다. 담당자는 업체명, 담당자명, 연락처와 파일 정보를 함께 확인해
+                주문번호가 없어도 파일 접수는 가능합니다. 담당자는 고객명/주문자명, 연락처와 파일 정보를 함께 확인해
                 필요한 안내를 드립니다.
               </p>
             </div>

@@ -64,19 +64,21 @@ function TextField({
   id,
   label,
   type = "text",
+  placeholder,
   required,
   error
 }: {
   id: string;
   label: string;
   type?: string;
+  placeholder?: string;
   required?: boolean;
   error?: string;
 }) {
   return (
     <label className="block">
       <span className="label-base">{label}</span>
-      <input id={id} name={id} type={type} required={required} className="input-base mt-2" />
+      <input id={id} name={id} type={type} placeholder={placeholder} required={required} className="input-base mt-2" />
       <FieldError message={error} />
     </label>
   );
@@ -113,11 +115,13 @@ async function readJsonResponse<T>(response: Response): Promise<T & { message?: 
 }
 
 function buildProjectPayload(formData: FormData) {
+  const customerName = getFormValue(formData, "customerName");
+
   return {
     cafe24OrderNumber: getFormValue(formData, "cafe24OrderNumber"),
-    companyName: getFormValue(formData, "companyName"),
-    contactName: getFormValue(formData, "contactName"),
-    customerName: getFormValue(formData, "customerName"),
+    companyName: customerName,
+    contactName: "",
+    customerName,
     phone: getFormValue(formData, "phone"),
     email: getFormValue(formData, "email"),
     contactMethod: getFormValue(formData, "contactMethod"),
@@ -208,22 +212,33 @@ export function PrintFileUploadForm() {
         fieldErrors: toPrintFileFieldErrors(parsed.error),
         message: "입력 내용을 다시 확인해 주세요."
       });
-      throw new Error("invalid-project-input");
+      throw new Error("handled-invalid-project-input");
     }
 
-    const response = await fetch("/api/uploads/projects", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(parsed.data)
-    });
+    let response: Response;
+
+    try {
+      response = await fetch("/api/uploads/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(parsed.data)
+      });
+    } catch {
+      setState({
+        fieldErrors: {},
+        message: "네트워크 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
+      });
+      throw new Error("handled-project-network-error");
+    }
+
     const data = await readJsonResponse<{ project?: CreatedProject }>(response);
 
     if (!response.ok || !data.project) {
       setState({
         fieldErrors: data.fieldErrors ?? {},
-        message: data.message ?? "업로드 정보를 저장하는 중 문제가 발생했습니다."
+        message: data.message ?? "업로드 프로젝트 생성에 실패했습니다."
       });
-      throw new Error("project-create-failed");
+      throw new Error("handled-project-create-failed");
     }
 
     return data.project;
@@ -231,48 +246,68 @@ export function PrintFileUploadForm() {
 
   async function uploadFile(projectId: string, file: File, index: number) {
     setProgressMessage(`${index + 1}번째 파일 업로드 준비 중입니다.`);
-    const prepareResponse = await fetch("/api/uploads/files", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        intent: "prepare",
-        projectId,
-        originalFilename: file.name,
-        fileSize: file.size,
-        fileType: file.type || "application/octet-stream"
-      })
-    });
+    let prepareResponse: Response;
+
+    try {
+      prepareResponse = await fetch("/api/uploads/files", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          intent: "prepare",
+          projectId,
+          originalFilename: file.name,
+          fileSize: file.size,
+          fileType: file.type || "application/octet-stream"
+        })
+      });
+    } catch {
+      throw new Error("네트워크 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
+    }
+
     const prepared = await readJsonResponse<PreparedUpload>(prepareResponse);
 
     if (!prepareResponse.ok || !prepared.file?.id || !prepared.upload?.uploadUrl) {
-      throw new Error(prepared.message ?? "파일 업로드 주소를 만들 수 없습니다.");
+      throw new Error(prepared.message ?? "파일 업로드 준비에 실패했습니다.");
     }
 
     setProgressMessage(`${index + 1}번째 파일을 전송 중입니다.`);
-    const uploadResponse = await fetch(prepared.upload.uploadUrl, {
-      method: prepared.upload.method,
-      headers: prepared.upload.headers,
-      body: file
-    });
+    let uploadResponse: Response;
+
+    try {
+      uploadResponse = await fetch(prepared.upload.uploadUrl, {
+        method: prepared.upload.method,
+        headers: prepared.upload.headers,
+        body: file
+      });
+    } catch {
+      throw new Error("파일 전송 중 네트워크 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
+    }
 
     if (!uploadResponse.ok) {
       throw new Error("파일 전송에 실패했습니다. 잠시 후 다시 시도해 주세요.");
     }
 
     setProgressMessage(`${index + 1}번째 파일 전송을 확인 중입니다.`);
-    const completeResponse = await fetch("/api/uploads/files", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        intent: "complete",
-        projectId,
-        fileId: prepared.file.id
-      })
-    });
+    let completeResponse: Response;
+
+    try {
+      completeResponse = await fetch("/api/uploads/files", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          intent: "complete",
+          projectId,
+          fileId: prepared.file.id
+        })
+      });
+    } catch {
+      throw new Error("파일 업로드 확인 중 네트워크 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
+    }
+
     const completed = await readJsonResponse<CompletedUpload>(completeResponse);
 
     if (!completeResponse.ok) {
-      throw new Error(completed.message ?? "파일 전송 확인에 실패했습니다.");
+      throw new Error(completed.message ?? "파일 업로드 확인에 실패했습니다.");
     }
 
     return completed.file ?? {
@@ -326,7 +361,7 @@ export function PrintFileUploadForm() {
         : "/upload/success";
       router.push(successPath);
     } catch (error) {
-      if (error instanceof Error && error.message.startsWith("invalid-")) {
+      if (error instanceof Error && error.message.startsWith("handled-")) {
         return;
       }
 
@@ -347,7 +382,7 @@ export function PrintFileUploadForm() {
         <legend className="px-2 text-base font-bold text-ink">주문 정보</legend>
         <div className="mt-5 grid gap-5 md:grid-cols-2">
           <div className="md:col-span-2">
-            <TextField id="cafe24OrderNumber" label="Cafe24 주문번호" error={state.fieldErrors.cafe24OrderNumber} />
+            <TextField id="cafe24OrderNumber" label="Cafe24 주문번호" placeholder="예: 20260627-0000032" error={state.fieldErrors.cafe24OrderNumber} />
             <p className="mt-2 text-xs leading-5 text-neutral-500">
               주문번호가 있는 경우 입력해 주세요. 주문번호가 없어도 파일 접수는 가능합니다.
             </p>
@@ -360,9 +395,7 @@ export function PrintFileUploadForm() {
       <fieldset className="min-w-0 rounded-lg border border-line bg-paper p-5 sm:p-6">
         <legend className="px-2 text-base font-bold text-ink">고객 정보</legend>
         <div className="mt-5 grid gap-5 md:grid-cols-2">
-          <TextField id="companyName" label="업체명" error={state.fieldErrors.companyName} />
-          <TextField id="customerName" label="업체명 또는 고객명" required error={state.fieldErrors.customerName} />
-          <TextField id="contactName" label="담당자명" required error={state.fieldErrors.contactName} />
+          <TextField id="customerName" label="고객명/주문자명" required error={state.fieldErrors.customerName} />
           <TextField id="phone" label="연락처" required error={state.fieldErrors.phone} />
           <TextField id="email" label="이메일" type="email" error={state.fieldErrors.email} />
           <TextField id="contactMethod" label="기타 연락 방법" error={state.fieldErrors.contactMethod} />

@@ -117,14 +117,14 @@ describe("print file upload validation", () => {
   it("requires customer contact fields and privacy agreement", () => {
     const basePayload = {
       customerName: "페르패키지",
-      contactName: "담당자",
       phone: "010-1234-5678",
       email: "customer@example.com",
       privacyConsent: true
     };
 
     expect(uploadProjectCreateSchema.safeParse(basePayload).success).toBe(true);
-    expect(uploadProjectCreateSchema.safeParse({ ...basePayload, contactName: "" }).success).toBe(false);
+    expect(uploadProjectCreateSchema.safeParse({ ...basePayload, contactName: "" }).success).toBe(true);
+    expect(uploadProjectCreateSchema.safeParse({ ...basePayload, customerName: "" }).success).toBe(false);
     expect(uploadProjectCreateSchema.safeParse({ ...basePayload, privacyConsent: false }).success).toBe(false);
     expect(
       uploadProjectCreateSchema.safeParse({
@@ -141,7 +141,6 @@ describe("print file upload validation", () => {
     const parsed = uploadProjectCreateSchema.safeParse({
       cafe24OrderNumber: "",
       customerName: "페르패키지",
-      contactName: "담당자",
       phone: "010-1234-5678",
       productName: "",
       privacyConsent: true

@@ -244,8 +244,8 @@ export function isSvgPrintFile(filename: string): boolean {
 export const uploadProjectCreateSchema = z.object({
   cafe24OrderNumber: optionalOrderNumber,
   companyName: optionalText(120),
-  contactName: z.string().trim().min(1, "담당자명을 입력해 주세요.").max(80, "담당자명은 80자 이하로 입력해 주세요."),
-  customerName: z.string().trim().min(1, "업체명 또는 고객명을 입력해 주세요.").max(120, "업체명 또는 고객명은 120자 이하로 입력해 주세요."),
+  contactName: optionalText(80),
+  customerName: z.string().trim().min(1, "고객명/주문자명을 입력해 주세요.").max(120, "고객명/주문자명은 120자 이하로 입력해 주세요."),
   phone: z
     .string()
     .trim()

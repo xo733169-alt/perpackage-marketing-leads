@@ -41,8 +41,8 @@ export async function POST(request: Request) {
     });
     const baseData = {
       cafe24OrderNumber: input.cafe24OrderNumber ?? "",
-      companyName: input.companyName ?? null,
-      contactName: input.contactName,
+      companyName: input.companyName ?? input.customerName,
+      contactName: input.contactName ?? null,
       customerName: input.customerName,
       phone: input.phone,
       email: input.email ?? null,
