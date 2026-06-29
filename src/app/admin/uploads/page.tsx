@@ -15,6 +15,7 @@ import {
   PRINT_FILE_REVIEW_STATUS_LABELS,
   UPLOADED_FILE_STATUS_UPLOADED
 } from "@/lib/print-file-upload-schema";
+import { syncPreparedUploadedFiles } from "@/lib/upload-completion";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +41,7 @@ export default async function AdminUploadsPage({
     if (typeof value === "string") urlSearchParams.set(key, value);
   });
   const { where, orderBy, q, status } = buildUploadProjectListQuery(urlSearchParams);
+  await syncPreparedUploadedFiles({ take: 50 });
   const projects = await prisma.uploadProject.findMany({
     where,
     orderBy,

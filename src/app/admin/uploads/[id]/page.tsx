@@ -7,6 +7,7 @@ import {
   formatOptionalText,
   getPrintFileReviewStatusLabel,
   getReviewLogActorLabel,
+  getUploadedFileStatusLabel,
   getUploadStatusBadgeClass,
   isPrintFileReviewStatus
 } from "@/lib/admin-uploads";
@@ -17,6 +18,7 @@ import {
   UPLOADED_FILE_STATUS_UPLOADED,
   type PrintFileReviewStatus
 } from "@/lib/print-file-upload-schema";
+import { syncPreparedUploadedFiles } from "@/lib/upload-completion";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +35,8 @@ export default async function AdminUploadDetailPage({ params }: { params: { id: 
   if (!isAdminAuthenticated()) {
     redirect("/admin/login");
   }
+
+  await syncPreparedUploadedFiles({ projectId: params.id, take: 50 });
 
   const project = await prisma.uploadProject.findUnique({
     where: { id: params.id },
@@ -126,7 +130,7 @@ export default async function AdminUploadDetailPage({ params }: { params: { id: 
                         <th className="px-4 py-3 [white-space:nowrap]">크기</th>
                         <th className="px-4 py-3 [white-space:nowrap]">형식</th>
                         <th className="px-4 py-3 [white-space:nowrap]">버전</th>
-                        <th className="px-4 py-3 [white-space:nowrap]">검수 상태</th>
+                        <th className="px-4 py-3 [white-space:nowrap]">파일 상태</th>
                         <th className="px-4 py-3 [white-space:nowrap]">업로드 일시</th>
                         <th className="px-4 py-3 [white-space:nowrap]">다운로드</th>
                       </tr>
@@ -152,9 +156,10 @@ export default async function AdminUploadDetailPage({ params }: { params: { id: 
                               <span className="mt-1 block text-xs text-neutral-500">{formatDateTime(file.uploadedAt)}</span>
                             </td>
                             <td className="px-4 py-3 [white-space:nowrap]">
-                              <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${getUploadStatusBadgeClass(file.reviewStatus)}`}>
-                                {getPrintFileReviewStatusLabel(file.reviewStatus)}
+                              <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${getUploadStatusBadgeClass(file.uploadStatus)}`}>
+                                {getUploadedFileStatusLabel(file.uploadStatus)}
                               </span>
+                              <span className="mt-1 block text-xs text-neutral-500">검수: {getPrintFileReviewStatusLabel(file.reviewStatus)}</span>
                             </td>
                             <td className="px-4 py-3 text-neutral-700 [white-space:nowrap]">업로드: {formatDateTime(file.uploadedAt)}</td>
                             <td className="px-4 py-3 [white-space:nowrap]">

@@ -49,6 +49,7 @@ type CompletedUpload = {
 };
 
 type UploadedFileResult = NonNullable<CompletedUpload["file"]>;
+const COMPLETE_RETRY_DELAYS_MS = [0, 600, 1500];
 
 function getFormValue(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -112,6 +113,12 @@ async function readJsonResponse<T>(response: Response): Promise<T & { message?: 
     message?: string;
     fieldErrors?: PrintFileFieldErrors;
   };
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
 }
 
 function buildProjectPayload(formData: FormData) {
@@ -270,8 +277,53 @@ export function PrintFileUploadForm() {
       throw new Error(prepared.message ?? "파일 업로드 준비에 실패했습니다.");
     }
 
+    async function completePreparedUpload() {
+      let lastMessage = "파일 업로드 확인에 실패했습니다.";
+
+      for (let attempt = 0; attempt < COMPLETE_RETRY_DELAYS_MS.length; attempt += 1) {
+        const delay = COMPLETE_RETRY_DELAYS_MS[attempt];
+        if (delay > 0) await wait(delay);
+
+        setProgressMessage(`${index + 1}번째 파일 전송을 확인 중입니다.`);
+        let completeResponse: Response;
+
+        try {
+          completeResponse = await fetch("/api/uploads/files", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              intent: "complete",
+              projectId,
+              fileId: prepared.file.id
+            })
+          });
+        } catch {
+          lastMessage = "파일 업로드 확인 중 네트워크 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.";
+          continue;
+        }
+
+        const completed = await readJsonResponse<CompletedUpload>(completeResponse);
+
+        if (completeResponse.ok) {
+          return completed.file ?? {
+            id: prepared.file.id,
+            originalFilename: file.name,
+            fileSize: file.size,
+            fileExtension: file.name.split(".").pop()?.toLowerCase() ?? "",
+            version: index + 1,
+            uploadedAt: null
+          };
+        }
+
+        lastMessage = completed.message ?? lastMessage;
+      }
+
+      throw new Error(lastMessage);
+    }
+
     setProgressMessage(`${index + 1}번째 파일을 전송 중입니다.`);
     let uploadResponse: Response;
+    let uploadFetchError: Error | null = null;
 
     try {
       uploadResponse = await fetch(prepared.upload.uploadUrl, {
@@ -280,44 +332,22 @@ export function PrintFileUploadForm() {
         body: file
       });
     } catch {
-      throw new Error("파일 전송 중 네트워크 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
+      uploadFetchError = new Error("파일 전송 중 네트워크 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
     }
 
-    if (!uploadResponse.ok) {
+    if (uploadFetchError) {
+      try {
+        return await completePreparedUpload();
+      } catch {
+        throw uploadFetchError;
+      }
+    }
+
+    if (!uploadResponse!.ok) {
       throw new Error("파일 전송에 실패했습니다. 잠시 후 다시 시도해 주세요.");
     }
 
-    setProgressMessage(`${index + 1}번째 파일 전송을 확인 중입니다.`);
-    let completeResponse: Response;
-
-    try {
-      completeResponse = await fetch("/api/uploads/files", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          intent: "complete",
-          projectId,
-          fileId: prepared.file.id
-        })
-      });
-    } catch {
-      throw new Error("파일 업로드 확인 중 네트워크 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
-    }
-
-    const completed = await readJsonResponse<CompletedUpload>(completeResponse);
-
-    if (!completeResponse.ok) {
-      throw new Error(completed.message ?? "파일 업로드 확인에 실패했습니다.");
-    }
-
-    return completed.file ?? {
-      id: prepared.file.id,
-      originalFilename: file.name,
-      fileSize: file.size,
-      fileExtension: file.name.split(".").pop()?.toLowerCase() ?? "",
-      version: index + 1,
-      uploadedAt: null
-    };
+    return completePreparedUpload();
   }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {

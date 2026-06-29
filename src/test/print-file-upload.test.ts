@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildUploadProjectListQuery, formatDateTime, getReviewLogActorLabel } from "@/lib/admin-uploads";
+import {
+  buildUploadProjectListQuery,
+  formatDateTime,
+  getReviewLogActorLabel,
+  getUploadedFileStatusLabel
+} from "@/lib/admin-uploads";
 import {
   DEFAULT_UPLOAD_ALLOWED_EXTENSIONS,
   formatFileSize,
@@ -237,6 +242,11 @@ describe("print file upload admin time display", () => {
     expect(getReviewLogActorLabel("admin")).toBe("담당자");
     expect(getReviewLogActorLabel("print-team")).toBe("print-team");
     expect(getReviewLogActorLabel(null)).toBe("기록");
+  });
+
+  it("labels uploaded file transfer status separately from review status", () => {
+    expect(getUploadedFileStatusLabel("prepared")).toBe("전송 확인 전");
+    expect(getUploadedFileStatusLabel("uploaded")).toBe("업로드 완료");
   });
 });
 

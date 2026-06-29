@@ -3,6 +3,7 @@ import { buildUploadProjectListQuery } from "@/lib/admin-uploads";
 import { isAdminAuthenticated } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { UPLOADED_FILE_STATUS_UPLOADED } from "@/lib/print-file-upload-schema";
+import { syncPreparedUploadedFiles } from "@/lib/upload-completion";
 
 export async function GET(request: Request) {
   if (!isAdminAuthenticated()) {
@@ -11,6 +12,7 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const { where, orderBy } = buildUploadProjectListQuery(searchParams);
+  await syncPreparedUploadedFiles({ take: 50 });
   const projects = await prisma.uploadProject.findMany({
     where,
     orderBy,

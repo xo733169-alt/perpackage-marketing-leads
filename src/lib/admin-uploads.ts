@@ -2,6 +2,8 @@ import type { Prisma } from "@prisma/client";
 import {
   PRINT_FILE_REVIEW_STATUSES,
   PRINT_FILE_REVIEW_STATUS_LABELS,
+  UPLOADED_FILE_STATUS_PREPARED,
+  UPLOADED_FILE_STATUS_UPLOADED,
   type PrintFileReviewStatus
 } from "@/lib/print-file-upload-schema";
 
@@ -12,6 +14,12 @@ export function isPrintFileReviewStatus(value: string): value is PrintFileReview
 export function getPrintFileReviewStatusLabel(status: string) {
   if (status === "LINKED_TO_ORDER") return "Cafe24 주문 연결";
   return isPrintFileReviewStatus(status) ? PRINT_FILE_REVIEW_STATUS_LABELS[status] : status;
+}
+
+export function getUploadedFileStatusLabel(status: string) {
+  if (status === UPLOADED_FILE_STATUS_UPLOADED) return "업로드 완료";
+  if (status === UPLOADED_FILE_STATUS_PREPARED) return "전송 확인 전";
+  return status;
 }
 
 export function getUploadStatusBadgeClass(status: string) {
