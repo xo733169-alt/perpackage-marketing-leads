@@ -42,7 +42,14 @@ export async function POST(request: Request, { params }: { params: { orderId: st
     };
     const matchedProject = await findCafe24OrderMatchedProject(matchInput);
     const orderSummary = extractCafe24OrderSummary(detail, tokenLookupMallId, matchedProject);
-    const result = await linkCafe24OrderToUploadProject(matchInput);
+    const result = await linkCafe24OrderToUploadProject({
+      ...matchInput,
+      buyerName: orderSummary.buyerName,
+      buyerPhone: orderSummary.buyerPhone,
+      productName: orderSummary.productName,
+      productIdentifiers: orderSummary.productIdentifiers,
+      orderedAt: orderSummary.orderedAt
+    });
     const linkedProject = result.projectId
       ? await prisma.uploadProject.findUnique({
         where: { id: result.projectId },

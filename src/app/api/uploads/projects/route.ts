@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { isAllowedMutationOrigin } from "@/lib/auth";
+import { CAFE24_ORDER_LINK_PENDING_STATUS } from "@/lib/cafe24";
 import { prisma } from "@/lib/prisma";
 import { toPrintFileFieldErrors, uploadProjectCreateSchema } from "@/lib/print-file-upload-schema";
 import { buildUploadCode, getUploadCodeDailyPrefix } from "@/lib/upload-code";
@@ -29,6 +30,7 @@ export async function POST(request: Request) {
     }
 
     const input = parsed.data;
+    const hasCafe24OrderNumber = Boolean(input.cafe24OrderNumber?.trim());
     const dailyPrefix = getUploadCodeDailyPrefix();
     const dailyCount = await prisma.uploadProject.count({
       where: {
@@ -50,7 +52,7 @@ export async function POST(request: Request) {
       productOptionText: input.productOptionText ?? null,
       requestMemo: input.requestMemo ?? null,
       privacyAgreed: input.privacyConsent,
-      status: "upload_waiting",
+      status: hasCafe24OrderNumber ? "upload_waiting" : CAFE24_ORDER_LINK_PENDING_STATUS,
       reviewStatus: "upload_waiting"
     };
     const select = {

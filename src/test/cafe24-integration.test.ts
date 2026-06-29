@@ -6,12 +6,14 @@ import {
   createCafe24OAuthState,
   extractCafe24OrderInfo,
   extractCafe24OrderSummary,
+  getCafe24TokenTimingStatus,
   getCafe24WebhookAuthFailureReason,
   getCafe24ConfigStatus,
   getCafe24WebhookDebugInfo,
   inspectCafe24WebhookAuthHeaders,
   isCafe24TestWebhookPayload,
   redactSensitivePayload,
+  shouldRefreshCafe24Token,
   verifyCafe24OAuthState,
   verifyCafe24WebhookRequest
 } from "@/lib/cafe24";
@@ -104,6 +106,7 @@ describe("Cafe24 upload-code integration helpers", () => {
         order_id: "20260627-0000032",
         order_no: "20260627-0000032",
         buyer_name: "Test buyer",
+        buyer_cellphone: "010-1234-5678",
         ordered_date: "2026-06-27 10:00:00",
         payment_status: "paid",
         shipping_status: "F",
@@ -130,7 +133,9 @@ describe("Cafe24 upload-code integration helpers", () => {
     expect(summary.orderId).toBe("20260627-0000032");
     expect(summary.orderNo).toBe("20260627-0000032");
     expect(summary.buyerName).toBe("Test buyer");
+    expect(summary.buyerPhone).toBe("010-1234-5678");
     expect(summary.productName).toBe("Design service, Y box");
+    expect(summary.productIdentifiers).toEqual(["1001", "P0000AAA000A", "matte"]);
     expect(summary.paymentStatus).toBe("paid");
     expect(summary.paymentStatusSource).toBe("paid");
     expect(summary.shippingStatusSource).toBe("F");
@@ -202,6 +207,35 @@ describe("Cafe24 upload-code integration helpers", () => {
     expect(url.searchParams.get("redirect_uri")).toBe(cafe24Env.CAFE24_REDIRECT_URI);
     expect(url.searchParams.get("state")).toBe("state-value");
     expect(url.toString()).not.toContain("client-secret");
+  });
+
+  it("decides when Cafe24 access tokens should be refreshed", () => {
+    const now = Date.UTC(2026, 5, 29, 0, 0, 0);
+
+    expect(getCafe24TokenTimingStatus({
+      expiresAt: new Date(now + 60 * 60 * 1000),
+      now
+    })).toBe("valid");
+    expect(shouldRefreshCafe24Token({
+      expiresAt: new Date(now + 60 * 60 * 1000),
+      now
+    })).toBe(false);
+    expect(getCafe24TokenTimingStatus({
+      expiresAt: new Date(now + 5 * 60 * 1000),
+      now
+    })).toBe("refresh_needed");
+    expect(shouldRefreshCafe24Token({
+      expiresAt: new Date(now + 5 * 60 * 1000),
+      now
+    })).toBe(true);
+    expect(getCafe24TokenTimingStatus({
+      expiresAt: new Date(now - 1000),
+      now
+    })).toBe("expired");
+    expect(shouldRefreshCafe24Token({
+      expiresAt: new Date(now - 1000),
+      now
+    })).toBe(true);
   });
 
   it("verifies direct-token and hmac webhook signatures", () => {

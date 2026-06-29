@@ -25,6 +25,20 @@ type LookupProject = {
   matchType?: string | null;
 };
 
+type LookupCandidate = {
+  projectId: string;
+  uploadCode: string | null;
+  companyName: string | null;
+  customerName: string;
+  contactName: string | null;
+  phone: string;
+  productName: string;
+  createdAt: string;
+  score: number;
+  reasons: string[];
+  action: "AUTO_LINKABLE" | "REVIEW_REQUIRED";
+};
+
 type LookupOrder = {
   orderId?: string | null;
   orderNo?: string | null;
@@ -46,6 +60,8 @@ type LookupResult = {
   status: string;
   message: string;
   projectId?: string;
+  candidates?: LookupCandidate[];
+  autoLinkedByCandidate?: boolean;
 };
 
 type LookupResponse = {
@@ -90,6 +106,7 @@ export function AdminCafe24OrderLookupPanel({ mallId }: { mallId: string | null 
     return project.uploadCode ?? project.companyName ?? project.customerName ?? project.id;
   }, [project]);
   const responseShape = response?.order?.responseShape;
+  const candidates = response?.result?.candidates ?? [];
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -200,7 +217,32 @@ export function AdminCafe24OrderLookupPanel({ mallId }: { mallId: string | null 
             <ResultRow label="tokenLookupMallId" value={response.tokenLookupMallId} />
             <ResultRow label="연결 처리 결과" value={response.result?.status} />
             <ResultRow label="연결 메시지" value={response.result?.message} />
+            <ResultRow label="자동 후보 연결" value={response.result?.autoLinkedByCandidate ?? false} />
           </dl>
+
+          {candidates.length ? (
+            <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3">
+              <div className="text-sm font-black text-amber-900">관리자 확인 후보</div>
+              <div className="mt-3 grid gap-3">
+                {candidates.map((candidate) => (
+                  <div key={candidate.projectId} className="rounded-md border border-amber-100 bg-white p-3">
+                    <dl className="grid gap-2 md:grid-cols-3">
+                      <ResultRow label="점수" value={candidate.score} />
+                      <ResultRow label="판정" value={candidate.action === "AUTO_LINKABLE" ? "자동 연결 가능" : "관리자 확인 필요"} />
+                      <ResultRow label="매칭 사유" value={candidate.reasons.join(", ")} />
+                      <ResultRow label="접수번호" value={candidate.uploadCode} />
+                      <ResultRow label="업체명" value={candidate.companyName} />
+                      <ResultRow label="고객명" value={candidate.customerName} />
+                      <ResultRow label="담당자명" value={candidate.contactName} />
+                      <ResultRow label="연락처" value={candidate.phone} />
+                      <ResultRow label="상품명" value={candidate.productName} />
+                      <ResultRow label="업로드 시각" value={candidate.createdAt} />
+                    </dl>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           {responseShape ? (
             <div className="mt-4 rounded-md border border-emerald-100 bg-white p-3">

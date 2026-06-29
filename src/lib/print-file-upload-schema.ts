@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export const PRINT_FILE_UPLOAD_STATUSES = [
+  "ORDER_LINK_PENDING",
   "upload_waiting",
   "uploaded",
   "reviewing",
@@ -11,6 +12,7 @@ export const PRINT_FILE_UPLOAD_STATUSES = [
 ] as const;
 
 export const PRINT_FILE_REVIEW_STATUSES = [
+  "ORDER_LINK_PENDING",
   "upload_waiting",
   "uploaded",
   "reviewing",
@@ -21,6 +23,7 @@ export const PRINT_FILE_REVIEW_STATUSES = [
 ] as const;
 
 export const PRINT_FILE_UPLOAD_STATUS_LABELS: Record<PrintFileUploadStatus, string> = {
+  ORDER_LINK_PENDING: "주문 연결 대기",
   upload_waiting: "업로드 대기",
   uploaded: "업로드 완료",
   reviewing: "검수중",

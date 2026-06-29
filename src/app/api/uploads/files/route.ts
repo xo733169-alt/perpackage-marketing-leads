@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { isAllowedMutationOrigin } from "@/lib/auth";
+import { CAFE24_ORDER_LINK_PENDING_STATUS } from "@/lib/cafe24";
 import { prisma } from "@/lib/prisma";
 import {
   completeUploadFileSchema,
@@ -237,10 +238,20 @@ async function handleComplete(body: unknown) {
       }
     });
 
+    const currentProject = await tx.uploadProject.findUnique({
+      where: { id: file.projectId },
+      select: {
+        cafe24OrderNumber: true,
+        status: true
+      }
+    });
+    const nextProjectStatus = currentProject?.cafe24OrderNumber?.trim()
+      ? "uploaded"
+      : CAFE24_ORDER_LINK_PENDING_STATUS;
     const project = await tx.uploadProject.update({
       where: { id: file.projectId },
       data: {
-        status: "uploaded",
+        status: nextProjectStatus,
         reviewStatus: "uploaded"
       },
       select: {

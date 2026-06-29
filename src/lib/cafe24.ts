@@ -5,13 +5,14 @@ import { extractUploadCodeFromText, normalizeUploadCode } from "@/lib/upload-cod
 
 export const CAFE24_OAUTH_STATE_COOKIE = "perpackage_cafe24_oauth_state";
 export const CAFE24_LINKED_STATUS = "LINKED_TO_ORDER";
+export const CAFE24_ORDER_LINK_PENDING_STATUS = "ORDER_LINK_PENDING";
 export const CAFE24_LINK_SOURCE_WEBHOOK = "CAFE24_WEBHOOK";
 export const CAFE24_LINK_SOURCE_API = "CAFE24_API";
 export const CAFE24_LINK_SOURCE_MANUAL = "MANUAL";
 
 const DEFAULT_CAFE24_API_VERSION = "2024-06-01";
 const OAUTH_STATE_MAX_AGE_SECONDS = 10 * 60;
-const TOKEN_REFRESH_MARGIN_MS = 3 * 60 * 1000;
+export const CAFE24_TOKEN_REFRESH_MARGIN_MS = 10 * 60 * 1000;
 const WEBHOOK_DEBUG_KEY = "_perpackage_debug";
 const DEFAULT_SCOPES = [
   "mall.read_application",
@@ -71,7 +72,9 @@ export type Cafe24OrderSummary = {
   orderId: string | null;
   orderNo: string | null;
   buyerName: string | null;
+  buyerPhone: string | null;
   productName: string | null;
+  productIdentifiers: string[];
   paymentStatusSource: string | null;
   paymentStatus: string | null;
   orderedAt: string | null;
@@ -113,14 +116,35 @@ export type LinkCafe24OrderInput = {
   orderNo?: string | null;
   memberId?: string | null;
   orderMemo?: string | null;
+  buyerName?: string | null;
+  buyerPhone?: string | null;
+  productName?: string | null;
+  productIdentifiers?: string[];
+  orderedAt?: string | null;
   source: string;
   webhookEventId?: string | null;
+};
+
+export type Cafe24UploadProjectMatchCandidate = {
+  projectId: string;
+  uploadCode: string | null;
+  companyName: string | null;
+  customerName: string;
+  contactName: string | null;
+  phone: string;
+  productName: string;
+  createdAt: string;
+  score: number;
+  reasons: string[];
+  action: "AUTO_LINKABLE" | "REVIEW_REQUIRED";
 };
 
 export type LinkCafe24OrderResult = {
   status: "LINKED" | "SKIPPED" | "FAILED";
   message: string;
   projectId?: string;
+  candidates?: Cafe24UploadProjectMatchCandidate[];
+  autoLinkedByCandidate?: boolean;
 };
 
 export type Cafe24OrderDetailLookupStatus =
@@ -147,6 +171,7 @@ type Cafe24TokenResponse = {
   access_token?: string;
   refresh_token?: string;
   expires_in?: number | string;
+  refresh_token_expires_in?: number | string;
   scope?: string | string[];
   scopes?: string | string[];
 };
@@ -660,6 +685,19 @@ function collectCafe24ProductNames(detail: unknown): string[] {
   return getStringValuesByKeys(detail, CAFE24_PRODUCT_NAME_KEYS);
 }
 
+function collectCafe24ProductIdentifiers(detail: unknown): string[] {
+  const identifiers: string[] = [];
+  const itemArrays = findArraysByKeys(detail, ["items", "order_items", "orderItems", "products"]);
+
+  for (const itemArray of itemArrays) {
+    for (const item of itemArray) {
+      identifiers.push(...getStringValuesByKeys(item, CAFE24_PRODUCT_FALLBACK_KEYS));
+    }
+  }
+
+  return Array.from(new Set(identifiers));
+}
+
 export function analyzeCafe24OrderResponseShape(detail: unknown): Cafe24OrderResponseShape {
   return {
     topLevelKeys: isRecord(detail) ? Object.keys(detail).sort() : [],
@@ -756,7 +794,30 @@ export function extractCafe24OrderSummary(
     "customer_name",
     "customerName"
   ]);
+  const buyerPhone = findStringByKeys(detail, [
+    "buyer_cellphone",
+    "buyerCellphone",
+    "buyer_phone",
+    "buyerPhone",
+    "orderer_phone",
+    "ordererPhone",
+    "orderer_cellphone",
+    "ordererCellphone",
+    "member_phone",
+    "memberPhone",
+    "customer_phone",
+    "customerPhone",
+    "receiver_cellphone",
+    "receiverCellphone",
+    "receiver_phone",
+    "receiverPhone",
+    "cellphone",
+    "phone",
+    "mobile",
+    "mobilePhone"
+  ]);
   const productNames = collectCafe24ProductNames(detail);
+  const productIdentifiers = collectCafe24ProductIdentifiers(detail);
   const paymentStatusRaw = findStringByKeys(detail, CAFE24_PAYMENT_KEYS);
   const orderedAt = findStringByKeys(detail, [
     "ordered_date",
@@ -787,7 +848,9 @@ export function extractCafe24OrderSummary(
     orderId: orderInfo.orderId ?? null,
     orderNo: orderInfo.orderNo ?? orderInfo.orderId ?? null,
     buyerName,
+    buyerPhone,
     productName: productNames.length ? productNames.join(", ") : null,
+    productIdentifiers,
     paymentStatusSource: paymentStatusRaw,
     paymentStatus: paymentStatusRaw,
     orderedAt,
@@ -916,8 +979,35 @@ function normalizeScopes(value: string | string[] | undefined): string | null {
   return value?.trim() || null;
 }
 
-function parseTokenResponse(data: Cafe24TokenResponse) {
-  if (!data.access_token || !data.refresh_token) {
+export function getCafe24TokenTimingStatus({
+  expiresAt,
+  now = Date.now(),
+  refreshMarginMs = CAFE24_TOKEN_REFRESH_MARGIN_MS
+}: {
+  expiresAt: Date;
+  now?: number;
+  refreshMarginMs?: number;
+}): "valid" | "refresh_needed" | "expired" {
+  const remainingMs = expiresAt.getTime() - now;
+  if (remainingMs <= 0) return "expired";
+  if (remainingMs <= refreshMarginMs) return "refresh_needed";
+  return "valid";
+}
+
+export function shouldRefreshCafe24Token({
+  expiresAt,
+  now = Date.now(),
+  refreshMarginMs = CAFE24_TOKEN_REFRESH_MARGIN_MS
+}: {
+  expiresAt: Date;
+  now?: number;
+  refreshMarginMs?: number;
+}): boolean {
+  return getCafe24TokenTimingStatus({ expiresAt, now, refreshMarginMs }) !== "valid";
+}
+
+function parseTokenResponse(data: Cafe24TokenResponse, fallbackRefreshToken?: string | null) {
+  if (!data.access_token || (!data.refresh_token && !fallbackRefreshToken)) {
     throw new Error("Cafe24 token response did not include required token fields.");
   }
 
@@ -926,13 +1016,18 @@ function parseTokenResponse(data: Cafe24TokenResponse) {
 
   return {
     accessToken: data.access_token,
-    refreshToken: data.refresh_token,
+    refreshToken: data.refresh_token ?? fallbackRefreshToken ?? "",
     expiresAt,
     scopes: normalizeScopes(data.scope ?? data.scopes)
   };
 }
 
-async function requestCafe24Token(params: URLSearchParams, env: Cafe24Env | Record<string, string | undefined> = process.env) {
+async function requestCafe24Token(
+  params: URLSearchParams,
+  env: Cafe24Env | Record<string, string | undefined> = process.env,
+  fallbackRefreshToken?: string | null,
+  failureMessage = "Cafe24 token request failed. Please reconnect OAuth."
+) {
   const config = requireCafe24Config(env);
   const response = await fetch(`${getCafe24ApiBaseUrl(config.mallId)}/api/v2/oauth/token`, {
     method: "POST",
@@ -944,11 +1039,11 @@ async function requestCafe24Token(params: URLSearchParams, env: Cafe24Env | Reco
   });
 
   if (!response.ok) {
-    throw new Error(`Cafe24 token request failed with status ${response.status}.`);
+    throw new Error(failureMessage);
   }
 
   const json = (await response.json()) as Cafe24TokenResponse;
-  return parseTokenResponse(json);
+  return parseTokenResponse(json, fallbackRefreshToken);
 }
 
 export async function exchangeCafe24CodeForToken({
@@ -1000,7 +1095,12 @@ export async function refreshCafe24Token({
     grant_type: "refresh_token",
     refresh_token: existing.refreshToken
   });
-  const token = await requestCafe24Token(params, env);
+  const token = await requestCafe24Token(
+    params,
+    env,
+    existing.refreshToken,
+    "Cafe24 token refresh failed. Please reconnect OAuth."
+  );
 
   return prisma.cafe24Token.update({
     where: { mallId },
@@ -1025,8 +1125,12 @@ export async function getValidCafe24Token({
     throw new Error("Cafe24 token is not connected.");
   }
 
-  if (token.expiresAt.getTime() - Date.now() <= TOKEN_REFRESH_MARGIN_MS) {
-    return refreshCafe24Token({ mallId, env });
+  if (shouldRefreshCafe24Token({ expiresAt: token.expiresAt })) {
+    try {
+      return await refreshCafe24Token({ mallId, env });
+    } catch {
+      throw new Error("Cafe24 token refresh failed. Please reconnect OAuth.");
+    }
   }
 
   return token;
@@ -1053,7 +1157,12 @@ export async function fetchCafe24OrderDetail({
   let response = await fetch(endpoint, { headers: requestHeaders });
 
   if (response.status === 401) {
-    const refreshed = await refreshCafe24Token({ mallId: resolvedMallId, env });
+    let refreshed;
+    try {
+      refreshed = await refreshCafe24Token({ mallId: resolvedMallId, env });
+    } catch {
+      throw new Error("Cafe24 token refresh failed. Please reconnect OAuth.");
+    }
     response = await fetch(endpoint, {
       headers: {
         ...requestHeaders,
@@ -1140,6 +1249,133 @@ function toCafe24OrderProjectMatch(
   };
 }
 
+function normalizeMatchText(value: string | null | undefined): string {
+  return (value ?? "").replace(/\s+/g, "").toLowerCase();
+}
+
+function normalizePhone(value: string | null | undefined): string {
+  return (value ?? "").replace(/\D/g, "");
+}
+
+function isSamePhone(left: string | null | undefined, right: string | null | undefined): boolean {
+  const leftDigits = normalizePhone(left);
+  const rightDigits = normalizePhone(right);
+  if (!leftDigits || !rightDigits) return false;
+  return leftDigits === rightDigits || (leftDigits.length >= 8 && rightDigits.length >= 8 && leftDigits.slice(-8) === rightDigits.slice(-8));
+}
+
+function isTextMatch(left: string | null | undefined, right: string | null | undefined): boolean {
+  const normalizedLeft = normalizeMatchText(left);
+  const normalizedRight = normalizeMatchText(right);
+  if (!normalizedLeft || !normalizedRight) return false;
+  return normalizedLeft === normalizedRight || normalizedLeft.includes(normalizedRight) || normalizedRight.includes(normalizedLeft);
+}
+
+function getOrderUploadHourDelta(uploadedAt: Date, orderedAt?: string | null): number | null {
+  if (!orderedAt) return null;
+  const orderTime = new Date(orderedAt);
+  if (Number.isNaN(orderTime.getTime())) return null;
+  return Math.abs(orderTime.getTime() - uploadedAt.getTime()) / (1000 * 60 * 60);
+}
+
+function scoreUploadProjectCandidate(
+  project: {
+    id: string;
+    uploadCode: string | null;
+    companyName: string | null;
+    customerName: string;
+    contactName: string | null;
+    phone: string;
+    productName: string;
+    createdAt: Date;
+  },
+  input: LinkCafe24OrderInput
+): Cafe24UploadProjectMatchCandidate | null {
+  let score = 0;
+  const reasons: string[] = [];
+  const hasPhoneMatch = isSamePhone(project.phone, input.buyerPhone);
+
+  if (hasPhoneMatch) {
+    score += 55;
+    reasons.push("연락처 일치");
+  }
+
+  if (isTextMatch(project.customerName, input.buyerName) || isTextMatch(project.contactName, input.buyerName) || isTextMatch(project.companyName, input.buyerName)) {
+    score += 20;
+    reasons.push("주문자명 일치");
+  }
+
+  if (isTextMatch(project.productName, input.productName)) {
+    score += 20;
+    reasons.push("상품명 일치");
+  } else if ((input.productIdentifiers ?? []).some((identifier) => isTextMatch(project.productName, identifier))) {
+    score += 15;
+    reasons.push("상품번호 또는 옵션 후보 일치");
+  }
+
+  const hourDelta = getOrderUploadHourDelta(project.createdAt, input.orderedAt);
+  if (hourDelta !== null) {
+    if (hourDelta <= 6) {
+      score += 15;
+      reasons.push("업로드/주문 시간 6시간 이내");
+    } else if (hourDelta <= 24) {
+      score += 10;
+      reasons.push("업로드/주문 시간 24시간 이내");
+    } else if (hourDelta <= 72) {
+      score += 5;
+      reasons.push("업로드/주문 시간 72시간 이내");
+    }
+  }
+
+  if (score < 40) return null;
+
+  return {
+    projectId: project.id,
+    uploadCode: project.uploadCode,
+    companyName: project.companyName,
+    customerName: project.customerName,
+    contactName: project.contactName,
+    phone: project.phone,
+    productName: project.productName,
+    createdAt: project.createdAt.toISOString(),
+    score,
+    reasons,
+    action: score >= 85 && hasPhoneMatch ? "AUTO_LINKABLE" : "REVIEW_REQUIRED"
+  };
+}
+
+async function findCafe24UploadProjectMatchCandidates(input: LinkCafe24OrderInput): Promise<Cafe24UploadProjectMatchCandidate[]> {
+  const projects = await prisma.uploadProject.findMany({
+    where: {
+      linkedAt: null,
+      cafe24OrderId: null,
+      cafe24OrderNo: null,
+      OR: [
+        { status: CAFE24_ORDER_LINK_PENDING_STATUS },
+        { cafe24OrderNumber: "" }
+      ]
+    },
+    orderBy: { createdAt: "desc" },
+    take: 50,
+    select: {
+      id: true,
+      uploadCode: true,
+      companyName: true,
+      customerName: true,
+      contactName: true,
+      phone: true,
+      productName: true,
+      createdAt: true
+    }
+  });
+
+  return projects
+    .map((project) => scoreUploadProjectCandidate(project, input))
+    .filter((candidate): candidate is Cafe24UploadProjectMatchCandidate => Boolean(candidate))
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 5);
+}
+
 export async function findCafe24OrderMatchedProject(input: LinkCafe24OrderInput): Promise<Cafe24OrderProjectMatch | null> {
   const uploadCode = input.uploadCode ? normalizeUploadCode(input.uploadCode) : null;
 
@@ -1206,7 +1442,7 @@ export async function linkCafe24OrderToUploadProject(input: LinkCafe24OrderInput
       }
     })
     : null;
-  const project = uploadCodeProject ?? await (async () => {
+  let project = uploadCodeProject ?? await (async () => {
     const orderIdentifiers = uniqueOrderIdentifiers(input);
     if (!orderIdentifiers.length) return null;
 
@@ -1231,6 +1467,45 @@ export async function linkCafe24OrderToUploadProject(input: LinkCafe24OrderInput
       }
     });
   })();
+  let autoLinkedByCandidate = false;
+
+  if (!project) {
+    const candidates = await findCafe24UploadProjectMatchCandidates(input);
+    const topCandidate = candidates[0];
+    const secondCandidate = candidates[1];
+    const canAutoLink = Boolean(
+      topCandidate &&
+      topCandidate.action === "AUTO_LINKABLE" &&
+      (!secondCandidate || topCandidate.score - secondCandidate.score >= 15)
+    );
+
+    if (canAutoLink && topCandidate) {
+      project = await prisma.uploadProject.findUnique({
+        where: { id: topCandidate.projectId },
+        select: {
+          id: true,
+          uploadCode: true,
+          companyName: true,
+          customerName: true,
+          cafe24OrderNumber: true,
+          cafe24OrderId: true,
+          cafe24OrderNo: true,
+          linkedAt: true
+        }
+      });
+      autoLinkedByCandidate = Boolean(project);
+    }
+
+    if (!project) {
+      const message = candidates.length
+        ? "자동 연결은 보류했습니다. 관리자 확인이 필요한 업로드 프로젝트 후보가 있습니다."
+        : uploadCode
+          ? `Upload project was not found for ${uploadCode}.`
+          : "같은 주문번호 또는 자동 매칭 기준에 맞는 업로드 프로젝트가 없습니다.";
+      await updateWebhookEventStatus({ webhookEventId: input.webhookEventId, status: "SKIPPED", message });
+      return { status: "SKIPPED", message, candidates };
+    }
+  }
 
   if (!project) {
     const message = uploadCode
@@ -1292,6 +1567,7 @@ export async function linkCafe24OrderToUploadProject(input: LinkCafe24OrderInput
   return {
     status: "LINKED",
     message: project.linkedAt ? "Upload project was already linked to this Cafe24 order." : "Upload project was linked to Cafe24 order.",
-    projectId: project.id
+    projectId: project.id,
+    autoLinkedByCandidate
   };
 }

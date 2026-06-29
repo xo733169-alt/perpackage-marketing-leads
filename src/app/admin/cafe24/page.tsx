@@ -4,7 +4,7 @@ import { AdminCafe24OrderLookupPanel } from "@/components/AdminCafe24OrderLookup
 import { AdminNav } from "@/components/AdminNav";
 import { formatDateTime, formatOptionalText } from "@/lib/admin-uploads";
 import { isAdminAuthenticated } from "@/lib/auth";
-import { getCafe24ConfigStatus, getCafe24WebhookDebugInfo } from "@/lib/cafe24";
+import { getCafe24ConfigStatus, getCafe24TokenTimingStatus, getCafe24WebhookDebugInfo } from "@/lib/cafe24";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -49,7 +49,18 @@ export default async function AdminCafe24Page({
     }
   });
   const error = typeof searchParams?.error === "string" ? searchParams.error : "";
-  const isExpired = token ? token.expiresAt.getTime() <= Date.now() : false;
+  const tokenTimingStatus = token ? getCafe24TokenTimingStatus({ expiresAt: token.expiresAt }) : null;
+  const isTokenRefreshError = /token|oauth|refresh/i.test(error);
+  const tokenStatusLabel = !token
+    ? "연결 필요"
+    : isTokenRefreshError
+      ? "자동 갱신 실패"
+      : tokenTimingStatus === "expired"
+        ? "갱신 필요"
+        : tokenTimingStatus === "refresh_needed"
+          ? "갱신 필요"
+          : "연결됨";
+  const isExpired = tokenTimingStatus === "expired";
 
   return (
     <main className="min-h-screen bg-paper">
@@ -124,6 +135,18 @@ export default async function AdminCafe24Page({
                 <div>
                   <dt className="font-bold text-neutral-500">최근 갱신</dt>
                   <dd className="mt-1 text-ink">{formatDateTime(token.updatedAt)}</dd>
+                </div>
+                <div>
+                  <dt className="font-bold text-neutral-500">자동 갱신 상태</dt>
+                  <dd className={isTokenRefreshError ? "mt-1 font-bold text-red-700" : tokenTimingStatus === "refresh_needed" ? "mt-1 font-bold text-amber-700" : "mt-1 text-ink"}>{tokenStatusLabel}</dd>
+                </div>
+                <div>
+                  <dt className="font-bold text-neutral-500">자동 갱신 기준</dt>
+                  <dd className="mt-1 text-ink">만료 10분 전</dd>
+                </div>
+                <div>
+                  <dt className="font-bold text-neutral-500">갱신 실패 안내</dt>
+                  <dd className="mt-1 text-ink">{isTokenRefreshError ? "OAuth 재연결이 필요합니다." : "정상"}</dd>
                 </div>
               </dl>
             ) : (

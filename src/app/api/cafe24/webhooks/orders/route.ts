@@ -5,6 +5,7 @@ import {
   appendCafe24WebhookDebugInfo,
   type Cafe24OrderDetailLookupStatus,
   extractCafe24OrderInfo,
+  extractCafe24OrderSummary,
   fetchCafe24OrderDetail,
   getCafe24ConfigStatus,
   getCafe24WebhookAuthFailureReason,
@@ -74,6 +75,7 @@ export async function POST(request: Request) {
   const fallbackMallId = process.env.CAFE24_MALL_ID?.trim() || null;
   let orderInfo = extractCafe24OrderInfo(payload, fallbackMallId);
   const resolvedMallId = orderInfo.mallId?.trim() || fallbackMallId;
+  let orderSummaryForMatching = extractCafe24OrderSummary(payload, resolvedMallId);
   const isTestPayload = isCafe24TestWebhookPayload(payload);
   let payloadJson = appendCafe24WebhookDebugInfo(redactSensitivePayload(payload), buildWebhookDebug({
     orderInfo,
@@ -152,6 +154,7 @@ export async function POST(request: Request) {
         mallId: resolvedMallId
       });
       const detailInfo = extractCafe24OrderInfo(detail, resolvedMallId);
+      orderSummaryForMatching = extractCafe24OrderSummary(detail, resolvedMallId);
       orderInfo = {
         ...orderInfo,
         ...Object.fromEntries(Object.entries(detailInfo).filter(([, value]) => value !== null && value !== undefined))
@@ -234,6 +237,11 @@ export async function POST(request: Request) {
       orderNo: orderInfo.orderNo,
       memberId: orderInfo.memberId,
       orderMemo: orderInfo.orderMemo,
+      buyerName: orderSummaryForMatching.buyerName,
+      buyerPhone: orderSummaryForMatching.buyerPhone,
+      productName: orderSummaryForMatching.productName,
+      productIdentifiers: orderSummaryForMatching.productIdentifiers,
+      orderedAt: orderSummaryForMatching.orderedAt,
       source: CAFE24_LINK_SOURCE_WEBHOOK,
       webhookEventId: eventId
     });
