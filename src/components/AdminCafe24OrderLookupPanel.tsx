@@ -9,12 +9,27 @@ type LookupResponseShape = {
   hasItems: boolean;
   hasOrderItems: boolean;
   hasProducts: boolean;
+  itemCount: number;
   firstItemKeys: string[];
+  firstItemOptionKeys: string[];
+  firstItemAdditionalInputKeys: string[];
+  firstItemStringFields: LookupItemStringField[];
+  firstItemUploadCodeFound: boolean;
+  firstItemUploadCodeSourcePath: string | null;
+  additionalInputFieldMessage: string;
   paymentKeys: string[];
   shippingKeys: string[];
   memoKeys: string[];
   adminMemoKeys: string[];
   customerMemoKeys: string[];
+};
+
+type LookupItemStringField = {
+  path: string;
+  key: string;
+  hasStringValue: boolean;
+  containsUploadCode: boolean;
+  uploadCode: string | null;
 };
 
 type LookupProject = {
@@ -87,11 +102,28 @@ function joinList(values: string[] | null | undefined) {
   return values?.length ? values.join(", ") : "-";
 }
 
+function joinStringFieldSummaries(values: LookupItemStringField[] | null | undefined) {
+  if (!values?.length) return "-";
+
+  return values
+    .slice(0, 20)
+    .map((field) => {
+      const status = field.containsUploadCode
+        ? `접수번호 발견${field.uploadCode ? `(${field.uploadCode})` : ""}`
+        : field.hasStringValue
+          ? "문자열 있음"
+          : "문자열 없음";
+
+      return `${field.path} · ${status}`;
+    })
+    .join("\n");
+}
+
 function ResultRow({ label, value }: { label: string; value: string | number | boolean | null | undefined }) {
   return (
     <div className="rounded-md border border-line bg-ivory px-3 py-2">
       <dt className="text-xs font-bold text-neutral-500">{label}</dt>
-      <dd className="mt-1 break-words text-sm font-semibold text-ink">{display(value)}</dd>
+      <dd className="mt-1 whitespace-pre-line break-words text-sm font-semibold text-ink">{display(value)}</dd>
     </div>
   );
 }
@@ -258,7 +290,14 @@ export function AdminCafe24OrderLookupPanel({ mallId }: { mallId: string | null 
                 <ResultRow label="order 객체" value={responseShape.hasOrderObject} />
                 <ResultRow label="orders 배열" value={responseShape.hasOrdersArray} />
                 <ResultRow label="items 배열" value={responseShape.hasItems} />
+                <ResultRow label="item 배열 개수" value={responseShape.itemCount} />
                 <ResultRow label="첫 번째 item key" value={joinList(responseShape.firstItemKeys)} />
+                <ResultRow label="첫 번째 item option 관련 key" value={joinList(responseShape.firstItemOptionKeys)} />
+                <ResultRow label="첫 번째 item 추가입력/input/custom key" value={joinList(responseShape.firstItemAdditionalInputKeys)} />
+                <ResultRow label="첫 번째 item 문자열 필드" value={joinStringFieldSummaries(responseShape.firstItemStringFields)} />
+                <ResultRow label="첫 번째 item 접수번호 발견" value={responseShape.firstItemUploadCodeFound} />
+                <ResultRow label="첫 번째 item 접수번호 위치" value={responseShape.firstItemUploadCodeSourcePath} />
+                <ResultRow label="추가입력 옵션 API 포함 판단" value={responseShape.additionalInputFieldMessage} />
                 <ResultRow label="order_items 배열" value={responseShape.hasOrderItems} />
                 <ResultRow label="products 배열" value={responseShape.hasProducts} />
                 <ResultRow label="payment 관련 key" value={joinList(responseShape.paymentKeys)} />

@@ -240,10 +240,119 @@ describe("Cafe24 upload-code integration helpers", () => {
     expect(summary.responseShape.hasItems).toBe(true);
     expect(summary.responseShape.hasProducts).toBe(false);
     expect(summary.responseShape.hasOrderItems).toBe(false);
+    expect(summary.responseShape.itemCount).toBe(2);
     expect(summary.responseShape.firstItemKeys).toEqual(["option_value", "product_name_en", "product_no", "variant_code"]);
+    expect(summary.responseShape.firstItemOptionKeys).toEqual(["option_value", "variant_code"]);
+    expect(summary.responseShape.firstItemAdditionalInputKeys).toEqual([]);
+    expect(summary.responseShape.firstItemStringFields).toEqual([
+      {
+        path: "order.items[0].product_name_en",
+        key: "product_name_en",
+        hasStringValue: true,
+        containsUploadCode: false,
+        uploadCode: null
+      },
+      {
+        path: "order.items[0].variant_code",
+        key: "variant_code",
+        hasStringValue: true,
+        containsUploadCode: false,
+        uploadCode: null
+      },
+      {
+        path: "order.items[0].option_value",
+        key: "option_value",
+        hasStringValue: true,
+        containsUploadCode: false,
+        uploadCode: null
+      }
+    ]);
+    expect(summary.responseShape.firstItemUploadCodeFound).toBe(false);
+    expect(summary.responseShape.firstItemUploadCodeSourcePath).toBeNull();
+    expect(summary.responseShape.additionalInputFieldMessage).toBe("추가입력 옵션으로 보이는 필드가 API 응답에 없음");
     expect(summary.responseShape.paymentKeys).toContain("payment_status");
     expect(summary.responseShape.shippingKeys).toContain("shipping_status");
     expect(summary.responseShape.memoKeys).toContain("order_memo");
+  });
+
+  it("summarizes Cafe24 item option and additional input fields without exposing raw payload values", () => {
+    const summary = extractCafe24OrderSummary({
+      order: {
+        order_id: "20260629-0000053",
+        items: [
+          {
+            product_name: "테스트 상품",
+            option: "색상",
+            options: [
+              {
+                option_name: "파일접수번호",
+                option_value: "PP-UP-TEST-001"
+              }
+            ],
+            additional_options: [
+              {
+                name: "파일접수번호",
+                value: "PP-UP-TEST-001"
+              }
+            ],
+            input_options: {
+              receipt_code: "PP-UP-TEST-001"
+            },
+            custom_fields: {
+              note: "safe memo"
+            },
+            access_token: "hidden-item-token"
+          }
+        ]
+      }
+    }, "peerl");
+    const serialized = JSON.stringify(summary.responseShape);
+
+    expect(summary.uploadCode).toBe("PP-UP-TEST-001");
+    expect(summary.uploadCodeSourcePath).toBe("order.items[0].options[0].option_value");
+    expect(summary.responseShape.itemCount).toBe(1);
+    expect(summary.responseShape.firstItemKeys).toEqual([
+      "additional_options",
+      "custom_fields",
+      "input_options",
+      "option",
+      "options",
+      "product_name"
+    ]);
+    expect(summary.responseShape.firstItemOptionKeys).toEqual([
+      "additional_options",
+      "input_options",
+      "option",
+      "option_name",
+      "option_value",
+      "options"
+    ]);
+    expect(summary.responseShape.firstItemAdditionalInputKeys).toEqual([
+      "additional_options",
+      "custom_fields",
+      "input_options"
+    ]);
+    expect(summary.responseShape.firstItemUploadCodeFound).toBe(true);
+    expect(summary.responseShape.firstItemUploadCodeSourcePath).toBe("order.items[0].options[0].option_value");
+    expect(summary.responseShape.additionalInputFieldMessage).toBe("추가입력/입력/custom 후보 필드가 API 응답에 있습니다.");
+    expect(summary.responseShape.firstItemStringFields).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        path: "order.items[0].options[0].option_value",
+        containsUploadCode: true,
+        uploadCode: "PP-UP-TEST-001"
+      }),
+      expect.objectContaining({
+        path: "order.items[0].additional_options[0].value",
+        containsUploadCode: true,
+        uploadCode: "PP-UP-TEST-001"
+      }),
+      expect.objectContaining({
+        path: "order.items[0].input_options.receipt_code",
+        containsUploadCode: true,
+        uploadCode: "PP-UP-TEST-001"
+      })
+    ]));
+    expect(serialized).not.toContain("hidden-item-token");
   });
 
   it("stores and reads safe webhook debug information without exposing secrets", () => {

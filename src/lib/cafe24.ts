@@ -104,12 +104,27 @@ export type Cafe24OrderResponseShape = {
   hasItems: boolean;
   hasOrderItems: boolean;
   hasProducts: boolean;
+  itemCount: number;
   firstItemKeys: string[];
+  firstItemOptionKeys: string[];
+  firstItemAdditionalInputKeys: string[];
+  firstItemStringFields: Cafe24OrderItemStringFieldSummary[];
+  firstItemUploadCodeFound: boolean;
+  firstItemUploadCodeSourcePath: string | null;
+  additionalInputFieldMessage: string;
   paymentKeys: string[];
   shippingKeys: string[];
   memoKeys: string[];
   adminMemoKeys: string[];
   customerMemoKeys: string[];
+};
+
+export type Cafe24OrderItemStringFieldSummary = {
+  path: string;
+  key: string;
+  hasStringValue: boolean;
+  containsUploadCode: boolean;
+  uploadCode: string | null;
 };
 
 export type Cafe24OrderProjectMatch = {
@@ -673,6 +688,80 @@ function firstRecordKeysFromArrayKey(value: unknown, candidateKeys: string[]): s
   return [];
 }
 
+function firstRecordFromArrayKey(value: unknown, candidateKeys: string[]): Record<string, unknown> | null {
+  for (const array of findArraysByKeys(value, candidateKeys)) {
+    const firstRecord = array.find(isRecord);
+    if (firstRecord) return firstRecord;
+  }
+
+  return null;
+}
+
+function firstArrayLengthByKeys(value: unknown, candidateKeys: string[]): number {
+  const firstArray = findArraysByKeys(value, candidateKeys)[0];
+  return firstArray?.length ?? 0;
+}
+
+function collectKeysMatchingPattern(value: unknown, pattern: RegExp, depth = 0): string[] {
+  if (depth > 5 || value === null || value === undefined) return [];
+  const keys: string[] = [];
+
+  if (isRecord(value)) {
+    for (const [key, item] of Object.entries(value)) {
+      if (!isSensitiveKey(key) && pattern.test(key)) keys.push(key);
+      keys.push(...collectKeysMatchingPattern(item, pattern, depth + 1));
+    }
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      keys.push(...collectKeysMatchingPattern(item, pattern, depth + 1));
+    }
+  }
+
+  return Array.from(new Set(keys)).sort();
+}
+
+function collectItemStringFieldSummaries(
+  value: unknown,
+  path = "order.items[0]",
+  depth = 0,
+  summaries: Cafe24OrderItemStringFieldSummary[] = []
+): Cafe24OrderItemStringFieldSummary[] {
+  if (depth > 5 || value === null || value === undefined || summaries.length >= 80) return summaries;
+
+  if (typeof value === "string") {
+    const key = path.split(".").pop()?.replace(/\[\d+\]$/, "") ?? path;
+    const uploadCode = extractUploadCodeFromText(value);
+
+    summaries.push({
+      path,
+      key,
+      hasStringValue: Boolean(value.trim()),
+      containsUploadCode: Boolean(uploadCode),
+      uploadCode
+    });
+
+    return summaries;
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => {
+      collectItemStringFieldSummaries(item, `${path}[${index}]`, depth + 1, summaries);
+    });
+    return summaries;
+  }
+
+  if (isRecord(value)) {
+    for (const [key, item] of Object.entries(value)) {
+      if (isSensitiveKey(key)) continue;
+      collectItemStringFieldSummaries(item, appendCafe24Path(path, key), depth + 1, summaries);
+    }
+  }
+
+  return summaries;
+}
+
 function collectCafe24ProductNames(detail: unknown): string[] {
   const names: string[] = [];
   const itemArrays = findArraysByKeys(detail, ["items", "order_items", "orderItems", "products"]);
@@ -710,6 +799,13 @@ function collectCafe24ProductIdentifiers(detail: unknown): string[] {
 }
 
 export function analyzeCafe24OrderResponseShape(detail: unknown): Cafe24OrderResponseShape {
+  const firstItem = firstRecordFromArrayKey(detail, ["items"]);
+  const firstItemStringFields = firstItem ? collectItemStringFieldSummaries(firstItem) : [];
+  const firstItemUploadCodeField = firstItemStringFields.find((field) => field.containsUploadCode);
+  const firstItemAdditionalInputKeys = firstItem
+    ? collectKeysMatchingPattern(firstItem, /additional|input|custom/i)
+    : [];
+
   return {
     topLevelKeys: isRecord(detail) ? Object.keys(detail).sort() : [],
     hasOrderObject: hasNestedRecordKey(detail, ["order"]),
@@ -717,7 +813,18 @@ export function analyzeCafe24OrderResponseShape(detail: unknown): Cafe24OrderRes
     hasItems: hasNestedRecordKey(detail, ["items"], true),
     hasOrderItems: hasNestedRecordKey(detail, ["order_items", "orderItems"], true),
     hasProducts: hasNestedRecordKey(detail, ["products"], true),
+    itemCount: firstArrayLengthByKeys(detail, ["items"]),
     firstItemKeys: firstRecordKeysFromArrayKey(detail, ["items"]),
+    firstItemOptionKeys: firstItem
+      ? collectKeysMatchingPattern(firstItem, /option|variant/i)
+      : [],
+    firstItemAdditionalInputKeys,
+    firstItemStringFields,
+    firstItemUploadCodeFound: Boolean(firstItemUploadCodeField),
+    firstItemUploadCodeSourcePath: firstItemUploadCodeField?.path ?? null,
+    additionalInputFieldMessage: firstItemAdditionalInputKeys.length
+      ? "추가입력/입력/custom 후보 필드가 API 응답에 있습니다."
+      : "추가입력 옵션으로 보이는 필드가 API 응답에 없음",
     paymentKeys: collectMatchingKeys(detail, CAFE24_PAYMENT_KEYS),
     shippingKeys: collectMatchingKeys(detail, CAFE24_SHIPPING_KEYS),
     memoKeys: collectMatchingKeys(detail, CAFE24_MEMO_KEYS),
