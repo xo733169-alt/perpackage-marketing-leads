@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { extractUploadCodeFromText, normalizeUploadCode } from "@/lib/upload-code";
+import { extractUploadCodeFromText, normalizeUploadCode, UPLOAD_CODE_PATTERN } from "@/lib/upload-code";
 
 export const CAFE24_OAUTH_STATE_COOKIE = "perpackage_cafe24_oauth_state";
 export const CAFE24_LINKED_STATUS = "LINKED_TO_ORDER";
@@ -66,6 +66,7 @@ export type Cafe24OrderInfo = {
   memberId?: string | null;
   orderMemo?: string | null;
   uploadCode?: string | null;
+  uploadCodeExtraction?: Cafe24UploadCodeExtraction | null;
 };
 
 export type Cafe24OrderSummary = {
@@ -82,8 +83,18 @@ export type Cafe24OrderSummary = {
   shippingStatus: string | null;
   totalPaidAmount: string | null;
   uploadCode: string | null;
+  uploadCodeSourcePath: string | null;
+  uploadCodeSourceLabel: string | null;
+  uploadCodeSourceBasis: string | null;
   responseShape: Cafe24OrderResponseShape;
   matchedProject: Cafe24OrderProjectMatch | null;
+};
+
+export type Cafe24UploadCodeExtraction = {
+  uploadCode: string;
+  sourcePath: string;
+  sourceLabel: string;
+  sourceBasis: string;
 };
 
 export type Cafe24OrderResponseShape = {
@@ -715,23 +726,66 @@ export function analyzeCafe24OrderResponseShape(detail: unknown): Cafe24OrderRes
   };
 }
 
-function findUploadCodeInUnknown(value: unknown, depth = 0): string | null {
+const UPLOAD_CODE_SOURCE_BASIS = String(UPLOAD_CODE_PATTERN);
+
+function getUploadCodeSourceLabel(path: string) {
+  const normalized = path.toLowerCase();
+
+  if (/additional[_-]?option|additionalinfo|additional_info|custom/.test(normalized)) {
+    return "Cafe24 추가입력 옵션";
+  }
+
+  if (/order[_-]?memo|client[_-]?memo|customer[_-]?memo|buyer[_-]?memo|admin[_-]?memo|memo/.test(normalized)) {
+    return "Cafe24 주문 메모";
+  }
+
+  if (/option|option_value|optionvalue/.test(normalized)) {
+    return "Cafe24 상품 옵션";
+  }
+
+  if (/items|order_items|products/.test(normalized)) {
+    return "Cafe24 주문 상품";
+  }
+
+  return "Cafe24 주문 상세 응답";
+}
+
+function appendCafe24Path(path: string, key: string) {
+  if (!path) return key;
+  return /^[A-Za-z_$][\w$]*$/.test(key) ? `${path}.${key}` : `${path}[${JSON.stringify(key)}]`;
+}
+
+function appendCafe24ArrayPath(path: string, index: number) {
+  return `${path || "root"}[${index}]`;
+}
+
+export function extractCafe24UploadCodeWithSource(value: unknown, path = "", depth = 0): Cafe24UploadCodeExtraction | null {
   if (depth > 8 || value === null || value === undefined) return null;
 
   if (typeof value === "string") {
-    return extractUploadCodeFromText(value);
+    const uploadCode = extractUploadCodeFromText(value);
+
+    return uploadCode
+      ? {
+        uploadCode,
+        sourcePath: path || "root",
+        sourceLabel: getUploadCodeSourceLabel(path),
+        sourceBasis: UPLOAD_CODE_SOURCE_BASIS
+      }
+      : null;
   }
 
   if (Array.isArray(value)) {
-    for (const item of value) {
-      const found = findUploadCodeInUnknown(item, depth + 1);
+    for (let index = 0; index < value.length; index += 1) {
+      const found = extractCafe24UploadCodeWithSource(value[index], appendCafe24ArrayPath(path, index), depth + 1);
       if (found) return found;
     }
   }
 
   if (isRecord(value)) {
-    for (const item of Object.values(value)) {
-      const found = findUploadCodeInUnknown(item, depth + 1);
+    for (const [key, item] of Object.entries(value)) {
+      if (isSensitiveKey(key)) continue;
+      const found = extractCafe24UploadCodeWithSource(item, appendCafe24Path(path, key), depth + 1);
       if (found) return found;
     }
   }
@@ -745,6 +799,8 @@ export function extractCafe24OrderInfo(payload: unknown, fallbackMallId?: string
     ...CAFE24_ADMIN_MEMO_KEYS,
     ...CAFE24_CUSTOMER_MEMO_KEYS
   ]);
+  const uploadCodeExtraction = extractCafe24UploadCodeWithSource(payload);
+  const memoUploadCode = extractUploadCodeFromText(orderMemo);
 
   return {
     eventType: findStringByKeys(payload, ["event_type", "eventType", "event_name", "eventName", "event", "resource_type", "resourceType"]),
@@ -754,7 +810,15 @@ export function extractCafe24OrderInfo(payload: unknown, fallbackMallId?: string
     orderNo: findStringByKeys(payload, ["order_no", "orderNo", "order_number", "orderNumber", "order_id", "orderId"]),
     memberId: findStringByKeys(payload, ["member_id", "memberId", "customer_id", "customerId"]),
     orderMemo,
-    uploadCode: findUploadCodeInUnknown(payload) ?? extractUploadCodeFromText(orderMemo)
+    uploadCode: uploadCodeExtraction?.uploadCode ?? memoUploadCode,
+    uploadCodeExtraction: uploadCodeExtraction ?? (memoUploadCode
+      ? {
+        uploadCode: memoUploadCode,
+        sourcePath: "order_memo",
+        sourceLabel: "Cafe24 주문 메모",
+        sourceBasis: UPLOAD_CODE_SOURCE_BASIS
+      }
+      : null)
   };
 }
 
@@ -858,6 +922,9 @@ export function extractCafe24OrderSummary(
     shippingStatus: formatMappedStatus(shippingStatusRaw, CAFE24_SHIPPING_STATUS_LABELS),
     totalPaidAmount,
     uploadCode: orderInfo.uploadCode ?? null,
+    uploadCodeSourcePath: orderInfo.uploadCodeExtraction?.sourcePath ?? null,
+    uploadCodeSourceLabel: orderInfo.uploadCodeExtraction?.sourceLabel ?? null,
+    uploadCodeSourceBasis: orderInfo.uploadCodeExtraction?.sourceBasis ?? null,
     responseShape: analyzeCafe24OrderResponseShape(detail),
     matchedProject
   };

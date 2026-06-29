@@ -6,6 +6,7 @@ import {
   createCafe24OAuthState,
   extractCafe24OrderInfo,
   extractCafe24OrderSummary,
+  extractCafe24UploadCodeWithSource,
   getCafe24TokenTimingStatus,
   getCafe24WebhookAuthFailureReason,
   getCafe24ConfigStatus,
@@ -34,7 +35,98 @@ describe("Cafe24 upload-code integration helpers", () => {
 
     expect(code).toMatch(/^PP-UP-\d{8}-007$/);
     expect(extractUploadCodeFromText(`memo ${code} end`)).toBe(code);
+    expect(extractUploadCodeFromText("memo TEMP-UP-TEST-001 end")).toBe("TEMP-UP-TEST-001");
+    expect(extractUploadCodeFromText("memo PP-UP-TEST-001 end")).toBe("PP-UP-TEST-001");
     expect(extractUploadCodeFromText("no upload code")).toBeNull();
+  });
+
+  it("extracts upload codes from Cafe24 additional option values with a safe source path", () => {
+    const extracted = extractCafe24UploadCodeWithSource({
+      order: {
+        items: [
+          {
+            additional_option: [
+              {
+                name: "파일접수번호",
+                value: "PP-UP-TEST-001"
+              }
+            ]
+          }
+        ]
+      }
+    });
+
+    expect(extracted?.uploadCode).toBe("PP-UP-TEST-001");
+    expect(extracted?.sourcePath).toBe("order.items[0].additional_option[0].value");
+    expect(extracted?.sourceLabel).toBe("Cafe24 추가입력 옵션");
+    expect(extracted?.sourceBasis).toContain("PP|TEMP");
+  });
+
+  it("extracts upload codes from order memo and item option values", () => {
+    const memoExtracted = extractCafe24UploadCodeWithSource({
+      order: {
+        order_memo: "주문 전 업로드 PP-UP-TEST-002"
+      }
+    });
+    const optionExtracted = extractCafe24UploadCodeWithSource({
+      order: {
+        items: [
+          {
+            option_value: "접수번호 TEMP-UP-20260629-003"
+          }
+        ]
+      }
+    });
+
+    expect(memoExtracted?.uploadCode).toBe("PP-UP-TEST-002");
+    expect(memoExtracted?.sourcePath).toBe("order.order_memo");
+    expect(memoExtracted?.sourceLabel).toBe("Cafe24 주문 메모");
+    expect(optionExtracted?.uploadCode).toBe("TEMP-UP-20260629-003");
+    expect(optionExtracted?.sourcePath).toBe("order.items[0].option_value");
+    expect(optionExtracted?.sourceLabel).toBe("Cafe24 상품 옵션");
+  });
+
+  it("returns null when no upload code exists or when it only appears in sensitive fields", () => {
+    expect(extractCafe24UploadCodeWithSource({ order: { order_memo: "no code" } })).toBeNull();
+    expect(extractCafe24UploadCodeWithSource({
+      access_token: "PP-UP-TEST-999",
+      refresh_token: "TEMP-UP-TEST-999",
+      client_secret: "PP-UP-TEST-998"
+    })).toBeNull();
+  });
+
+  it("returns upload-code diagnostics in Cafe24 order info and summary without exposing sensitive values", () => {
+    const payload = {
+      order: {
+        order_id: "20260629-0001",
+        items: [
+          {
+            additional_option: [
+              {
+                name: "파일접수번호",
+                value: "PP-UP-TEST-004"
+              }
+            ]
+          }
+        ]
+      },
+      access_token: "hidden-access-token",
+      client_secret: "hidden-client-secret"
+    };
+    const info = extractCafe24OrderInfo(payload, "peerl");
+    const summary = extractCafe24OrderSummary(payload, "peerl");
+    const serializedInfo = JSON.stringify(info);
+    const serializedSummary = JSON.stringify(summary);
+
+    expect(info.uploadCode).toBe("PP-UP-TEST-004");
+    expect(info.uploadCodeExtraction?.sourcePath).toBe("order.items[0].additional_option[0].value");
+    expect(summary.uploadCode).toBe("PP-UP-TEST-004");
+    expect(summary.uploadCodeSourcePath).toBe("order.items[0].additional_option[0].value");
+    expect(summary.uploadCodeSourceLabel).toBe("Cafe24 추가입력 옵션");
+    expect(serializedInfo).not.toContain("hidden-access-token");
+    expect(serializedInfo).not.toContain("hidden-client-secret");
+    expect(serializedSummary).not.toContain("hidden-access-token");
+    expect(serializedSummary).not.toContain("hidden-client-secret");
   });
 
   it("extracts Cafe24 order fields and upload code from nested payloads", () => {

@@ -51,6 +51,9 @@ type LookupOrder = {
   shippingStatus?: string | null;
   totalPaidAmount?: string | null;
   uploadCode?: string | null;
+  uploadCodeSourcePath?: string | null;
+  uploadCodeSourceLabel?: string | null;
+  uploadCodeSourceBasis?: string | null;
   hasUploadCode?: boolean;
   responseShape?: LookupResponseShape;
   matchedProject?: LookupProject | null;
@@ -211,6 +214,9 @@ export function AdminCafe24OrderLookupPanel({ mallId }: { mallId: string | null 
             <ResultRow label="총 결제금액" value={response.order.totalPaidAmount} />
             <ResultRow label="업로드 접수번호 추출 여부" value={response.order.hasUploadCode ?? false} />
             <ResultRow label="업로드 접수번호" value={response.order.uploadCode} />
+            <ResultRow label="추출 위치" value={response.order.uploadCodeSourcePath} />
+            <ResultRow label="추출 기준" value={response.order.uploadCodeSourceLabel} />
+            <ResultRow label="추출 패턴" value={response.order.uploadCodeSourceBasis} />
             <ResultRow label="연결 프로젝트 여부" value={Boolean(project)} />
             <ResultRow label="연결 프로젝트" value={projectLabel} />
             <ResultRow label="연결 기준" value={project?.matchType} />

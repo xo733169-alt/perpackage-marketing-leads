@@ -1,5 +1,5 @@
 export const UPLOAD_CODE_PREFIX = "PP-UP";
-export const UPLOAD_CODE_PATTERN = /PP-UP-\d{8}-\d{3,}/i;
+export const UPLOAD_CODE_PATTERN = /\b(?:PP|TEMP)-UP-(?:\d{8}|TEST)-\d{3,}\b/i;
 
 const KOREA_TIME_ZONE = "Asia/Seoul";
 
